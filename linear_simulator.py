@@ -23,6 +23,8 @@ def generate_conditions(
 
     input_eigenbasis = scipy.stats.ortho_group.rvs(N_E)
     input_eigenspectrum = np.random.uniform(low = 0, high = 1, size = N_E)
+    # Reorder the eigenspectrum in descending order
+    input_eigenspectrum = np.sort(input_eigenspectrum)[::-1]
 
     return initial_W, initial_M, input_eigenbasis, input_eigenspectrum
 
