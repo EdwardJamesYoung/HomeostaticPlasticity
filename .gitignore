@@ -1,3 +1,4 @@
 wandb/
 __pycache__/
 *.ipynb
+numpy_code.py
