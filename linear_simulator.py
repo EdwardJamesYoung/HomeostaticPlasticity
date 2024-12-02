@@ -47,7 +47,7 @@ def run_simulation(
     T: float = 1000.0,
     zeta: float = 1.0,
     alpha: float = 1.0,
-    tau_k: Optional[float] = 100,
+    tau_k: float | bool = 100,
     sig2: float = 0.2,
     k_I: float = 1.5,
     tau_M: float = 1.0,
@@ -106,7 +106,7 @@ def run_simulation(
         )
         new_W = torch.diag(target_W_norm / new_W_norm) @ new_W
 
-        if tau_k is not None:
+        if tau_k is not False:
             dk_E = (dt / tau_k) * (1 - torch.diag(population_covariance) / sig2)
             k_E = k_E + dk_E
 
@@ -128,7 +128,7 @@ def run_simulation(
                 commit=False,
             )
 
-            if tau_k is not None:
+            if tau_k is not False:
                 excitatory_mass_update_magnitude = torch.sum(torch.abs(dk_E)).item() / (
                     N_I * dt
                 )
