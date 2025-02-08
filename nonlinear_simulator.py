@@ -19,7 +19,7 @@ class SimulationParameters:
     k_I: float = 10.0
     target_rate: float = 1.0
     omega: float = 1.0
-    T: float = 30000.0
+    T: float = 120000.0
     dt: float = 0.05
     tau_v: float = 1.0
     tau_u: float = 5.0
@@ -30,8 +30,8 @@ class SimulationParameters:
     alpha: float = 1.0
     nonlinearity_name: str = "rectified_quadratic"
     nonlinearity: NonLinearity = RectifiedQuadratic()
-    dynamics_log_time: float = 5.0
-    mode_log_time: float = 30.0
+    dynamics_log_time: float = 10.0
+    mode_log_time: float = 50.0
     num_samples: int = 10000
     wandb_logging: bool = False
     log_neuron_rate: bool = False

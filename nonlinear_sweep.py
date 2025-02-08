@@ -118,15 +118,14 @@ def run_grid_experiments(param_grid: Dict[str, List], group_name: Optional[str] 
 
 if __name__ == "__main__":
     # Define the parameter grid
-    group_name = "nonlinear_sweep"
+    group_name = "long_nonlinear_sweep"
 
     param_grid = {
+        "tau_k": [500.0, False],
         "k_I": [
-            1,
-            2.5,
+            1.0,
             5.0,
             10.0,
-            15.0,
             20.0,
         ],
         "target_rate": [0.01, 0.1, 1],
@@ -135,9 +134,8 @@ if __name__ == "__main__":
             "rectified_linear",
             "rectified_cubic",
         ],
-        "tau_k": [500.0, False],
         "wandb_logging": [True],
-        "random_seed": [1, 2],
+        "random_seed": [1],
     }
     wandb.login()
 
