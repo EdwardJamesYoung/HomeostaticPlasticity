@@ -118,7 +118,7 @@ def run_grid_experiments(param_grid: Dict[str, List], group_name: Optional[str] 
 
 if __name__ == "__main__":
     # Define the parameter grid
-    group_name = "testing_new_initialisation"
+    group_name = "nonlinear_sweep"
 
     param_grid = {
         "k_I": [
