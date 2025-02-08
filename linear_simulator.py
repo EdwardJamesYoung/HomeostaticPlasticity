@@ -5,39 +5,6 @@ from typing import Optional
 import wandb
 
 
-def generate_conditions(
-    N_E: int, N_I: int, k_I: float, sig2: float, run_number: int, device: torch.device
-):
-    torch.manual_seed(run_number)
-    np.random.seed(run_number)
-
-    dtype = torch.float64
-
-    # Draw an input weight matrix at random
-    initial_W = (
-        torch.sqrt(torch.tensor(sig2))
-        * k_I
-        * torch.randn(N_I, N_E, device=device, dtype=dtype)
-    )
-
-    # Construct M to be diagonally dominant
-    initial_M = torch.rand(N_I, N_I, device=device, dtype=dtype) + N_I * torch.eye(
-        N_I, device=device, dtype=dtype
-    )
-    # Renormalise M
-    initial_M = k_I * initial_M / torch.sum(initial_M, dim=1, keepdim=True)
-
-    # For orthogonal matrix generation, we'll still use numpy and then convert
-    input_eigenbasis = torch.tensor(
-        scipy.stats.ortho_group.rvs(N_E), device=device, dtype=dtype
-    )
-    input_eigenspectrum = torch.sort(
-        torch.rand(N_E, device=device, dtype=dtype), descending=True
-    )[0]
-
-    return initial_W, initial_M, input_eigenbasis, input_eigenspectrum
-
-
 def run_simulation(
     initial_W: torch.Tensor,  # The initial feedforward weight matrix
     initial_M: torch.Tensor,  # The initial recurrent weight matrix
