@@ -118,7 +118,7 @@ def run_grid_experiments(param_grid: Dict[str, List], group_name: Optional[str] 
 
 if __name__ == "__main__":
     # Define the parameter grid
-    group_name = "long_nonlinear_sweep"
+    group_name = "nonlinear_sweep_residual_learning"
 
     param_grid = {
         "tau_k": [500.0, False],
