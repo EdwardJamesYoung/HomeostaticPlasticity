@@ -153,7 +153,7 @@ def run_simulation(
         r = non_linearity(v)
 
         # Update the running average of the firing rates:
-        r_bar = (1 - dt / tau_M) * r_bar + (dt / tau_M) * r
+        r_bar = (1 - dt / tau_W) * r_bar + (dt / tau_W) * r
 
         # Update the excitatory mass
         if tau_k is not False:
