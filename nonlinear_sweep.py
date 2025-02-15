@@ -132,7 +132,7 @@ if __name__ == "__main__":
         "nonlinearity_name": ["rectified_quadratic"],
         "wandb_logging": [True],
         "random_seed": [1],
-        "T": 150000.0,
+        "T": [150000.0],
     }
     wandb.login()
 
