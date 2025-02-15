@@ -139,6 +139,8 @@ def run_simulation(
 
     # Initialise the activities at steady-state
     r, v = compute_firing_rates(W, M, u, parameters)
+    # Initialise a running average firing rate.
+    r_bar = r.clone()
 
     # === Run the simulation ===
     for ii in range(total_number_of_timesteps):
@@ -149,6 +151,9 @@ def run_simulation(
         # Update the neural activity
         v = v + (dt / tau_v) * (W @ u - M @ r - v)
         r = non_linearity(v)
+
+        # Update the running average of the firing rates:
+        r_bar = (1 - dt / tau_M) * r_bar + (dt / tau_M) * r
 
         # Update the excitatory mass
         if tau_k is not False:
@@ -161,9 +166,12 @@ def run_simulation(
         W_norm = (1 - zeta * dt / tau_W) * W_norm + (zeta * dt / tau_W) * k_E
         M_norm = (1 - alpha * dt / tau_M) * M_norm + (alpha * dt / tau_M) * k_I
 
+        # Define the residual activity
+        r_res = r - r_bar
+
         # Update weight matrices
-        new_W = W + (dt / tau_W) * r @ u.T
-        new_M = M + (dt / tau_M) * r @ r.T
+        new_W = W + (dt / tau_W) * r_res @ u.T
+        new_M = M + (dt / tau_M) * r_res @ r_res.T
 
         # Rectify the recurrent weights
         new_M = torch.clamp(new_M, min=0)
@@ -388,7 +396,7 @@ def compute_firing_rates(
     u: Float[torch.Tensor, "N_E numstim"],
     parameters: SimulationParameters,
     threshold=1e-8,
-    max_iter=1000,
+    max_iter=100000,
 ):
     """
     Compute the firing rates of a neural network given the input and weight matrices.
@@ -403,7 +411,7 @@ def compute_firing_rates(
         torch.Tensor: The firing rates of the network.
     """
     # Unpack from parameters
-    dt = parameters.dt
+    dt = 0.1 * parameters.dt
     tau_v = parameters.tau_v
     non_linearity = parameters.nonlinearity
 

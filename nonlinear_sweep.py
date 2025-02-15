@@ -123,19 +123,16 @@ if __name__ == "__main__":
     param_grid = {
         "tau_k": [500.0, False],
         "k_I": [
-            1.0,
             5.0,
             10.0,
+            15.0,
             20.0,
         ],
-        "target_rate": [0.01, 0.1, 1],
-        "nonlinearity_name": [
-            "rectified_quadratic",
-            "rectified_linear",
-            "rectified_cubic",
-        ],
+        "target_rate": [1],
+        "nonlinearity_name": ["rectified_quadratic"],
         "wandb_logging": [True],
         "random_seed": [1],
+        "T": 150000.0,
     }
     wandb.login()
 
