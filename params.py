@@ -1,7 +1,15 @@
 import torch
 from dataclasses import dataclass, fields, asdict
 from typing import Optional
-from activation_functions import ActivationFunction, RectifiedQuadratic
+from activation_functions import *
+
+ACTIVATION_FUNCTION_MAP = {
+    "rectified_quadratic": RectifiedQuadratic,
+    "rectified_linear": RectifiedLinear,
+    "rectified_cubic": RectifiedCubic,
+    "cubic": Cubic,
+    "linear": Linear,
+}
 
 
 @dataclass
@@ -68,6 +76,16 @@ class SimulationParameters:
         assert (
             self.target_rate is not None or self.target_variance is not None
         ), "Must specify either target rate or target variance"
+
+        # Check whether the activation function is the same as the activation function name
+        if self.activation_function_name in ACTIVATION_FUNCTION_MAP:
+            if not isinstance(
+                self.activation_function,
+                ACTIVATION_FUNCTION_MAP[self.activation_function_name],
+            ):
+                self.activation_function = ACTIVATION_FUNCTION_MAP[
+                    self.activation_function_name
+                ]()
 
     def to_dict(self):
         return asdict(self)

@@ -154,11 +154,11 @@ def run_grid_experiments(
             run_params["input_type"] = generator_type
             del run_params["input_config"]
 
-        activation_function = run_params.get(
-            "activation_function", "rectified_quadratic"
+        activation_function_name = run_params.get(
+            "activation_function_name", "rectified_quadratic"
         )
         run_params["activation_function"] = ACTIVATION_FUNCTION_MAP[
-            activation_function
+            activation_function_name
         ]()
 
         # Merge with base parameters
