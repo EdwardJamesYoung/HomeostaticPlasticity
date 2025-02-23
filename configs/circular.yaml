@@ -1,0 +1,20 @@
+group_name: "circular_inputs"
+
+base_params:
+  variance_homeostasis: True
+  target_rate: 1.0
+  wandb_logging: True
+  random_seed: 1
+  covariance_learning: True
+  activation_function_name: "rectified_quadratic"
+
+param_grid:
+  rate_homeostasis: [True, False]
+  k_I: [2.0, 10.0, 20.0]
+
+  input_config:
+    - type: "circular" 
+      param_grid:  
+        mixing_parameter: [0.2, 0.5, 0.8]
+        vm_concentration: [1.0]
+        tuning_width: [1.0] 

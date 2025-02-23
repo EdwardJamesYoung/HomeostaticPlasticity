@@ -1,0 +1,18 @@
+group_name: "laplace_inputs"
+
+base_params:
+  variance_homeostasis: True
+  target_variance: 0.002
+  wandb_logging: True
+  random_seed: 1
+  covariance_learning: False
+
+param_grid:
+  activation_function_name: ["cubic", "linear"]
+  variance_homeostasis: [True, False]
+  k_I: [2.0, 10.0, 20.0]
+
+  input_config:
+    - type: "laplacian"
+
+    - type: "gaussian"

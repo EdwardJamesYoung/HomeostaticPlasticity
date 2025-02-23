@@ -1,0 +1,16 @@
+group_name: "testing_group"
+
+base_params:
+  variance_homeostasis: True
+  target_variance: 0.002
+  wandb_logging: true
+  random_seed: 1
+  num_samples: 10000
+
+param_grid:
+  activation_function_name: ["cubic", "linear"]
+  rate_homeostasis: [False, True]
+  k_I: [5.0, 10.0, 20.0]
+
+  input_config:
+    - type: "laplacian"
