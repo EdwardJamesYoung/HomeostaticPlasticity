@@ -1,7 +1,6 @@
 group_name: "circular_inputs"
 
 base_params:
-  variance_homeostasis: True
   target_rate: 1.0
   wandb_logging: True
   random_seed: 1
