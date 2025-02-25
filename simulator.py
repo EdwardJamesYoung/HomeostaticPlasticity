@@ -116,7 +116,7 @@ def run_simulation(
         new_M = M + (dt / tau_M) * r_res @ r_res.T
 
         # Rectify the recurrent weights
-        new_M = torch.clamp(new_M, min=0)
+        new_M = torch.clamp(new_M, min=1e-14)
 
         # Renormalize the weight matrices
         new_W = (
@@ -162,6 +162,15 @@ def run_simulation(
 
         if torch.isnan(W).any():
             print("NaNs in the feedforward weight matrix")
+            break
+        if torch.isnan(M).any():
+            print("NaNs in the recurrent weight matrix")
+            break
+        if torch.isnan(k_E).any():
+            print("NaNs in the excitatory mass")
+            break
+        if torch.isnan(r).any():
+            print("NaNs in the firing rates")
             break
 
     return W, M
