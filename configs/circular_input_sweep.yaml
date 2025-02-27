@@ -1,0 +1,22 @@
+group_name: "circular_inputs_strengths"
+
+base_params:
+  target_rate: 1.0
+  wandb_logging: True
+  random_seed: 1
+  covariance_learning: True
+  activation_function_name: "rectified_quadratic"
+  tau_u: 10.0
+  k_I: 20.0
+  T: 20000.0
+
+param_grid:
+  rate_homeostasis: [True, False]
+  omega: [0.01, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 10]
+
+  input_config:
+    - type: "circular" 
+      param_grid:  
+        mixing_parameter: [0.0]
+        vm_concentration: [1.0]
+        tuning_width: [1.0] 
