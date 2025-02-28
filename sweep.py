@@ -115,7 +115,12 @@ def create_input_generator(
     """Creates an input generator instance based on type and parameters."""
     generator_class = INPUT_GENERATOR_MAP[generator_type]
 
-    if generator_type in ["gaussian", "laplacian"]:
+    if generator_type in [
+        "ou_gaussian",
+        "ou_laplacian",
+        "const_gaussian",
+        "const_laplacian",
+    ]:
         if input_eigenbasis is None or input_eigenspectrum is None:
             input_eigenbasis, input_eigenspectrum = generate_conditions(parameters)
         return generator_class(
