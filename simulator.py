@@ -238,7 +238,7 @@ def mode_log(
     )
 
     wandb.log(
-        {"steady_state/attunment_entropy": input_generator.attunment_entropy(W)},
+        {"steady_state/attunement_entropy": input_generator.attunement_entropy(W)},
         commit=False,
     )
 

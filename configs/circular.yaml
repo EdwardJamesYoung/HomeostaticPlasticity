@@ -7,6 +7,7 @@ base_params:
   covariance_learning: True
   activation_function_name: "rectified_quadratic"
   tau_u: 10.0
+  T: 40000.0
 
 param_grid:
   rate_homeostasis: [True, False]
