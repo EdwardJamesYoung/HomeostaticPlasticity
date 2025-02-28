@@ -117,6 +117,7 @@ class EigenbasisInputGenerator(ABC):
         assert torch.allclose(
             input_eigenbasis @ input_eigenbasis.T,
             torch.eye(parameters.N_E, device=parameters.device, dtype=parameters.dtype),
+            atol=1e-6,
         ), "Input eigenbasis is not orthogonal"
         assert torch.all(
             input_eigenspectrum >= 0

@@ -1,0 +1,21 @@
+group_name: "tau_v_scaling"
+
+base_params:
+  variance_homeostasis: False
+  target_variance: 0.002
+  wandb_logging: True
+  random_seed: 1
+  covariance_learning: False
+  dt: 0.01
+  tau_u: 10.0
+  T: 10000.0
+
+param_grid:
+  activation_function_name: ["linear"]
+  k_I: [20.0]
+  tau_v: [0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
+
+  input_config:
+    - type: "laplacian"
+
+    - type: "gaussian"

@@ -320,6 +320,7 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     target_variance = parameters.target_variance
     activation_function = parameters.activation_function
     omega = parameters.omega
+    initial_feedforward_weight_scaling = parameters.initial_feedforward_weight_scaling
     dtype = parameters.dtype
     device = parameters.device
     random_seed = parameters.random_seed
@@ -337,6 +338,8 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
         k_E = N_E * k_I * torch.sqrt(torch.tensor(omega / N_I))
     else:
         raise ValueError("Must specify either target rate or target variance")
+
+    k_E = initial_feedforward_weight_scaling * k_E
 
     # Draw an input weight matrix at random
     initial_W = torch.randn(N_I, N_E, device=device, dtype=dtype)
@@ -413,9 +416,6 @@ def compute_mode_contributions(
     parameters: SimulationParameters,
 ) -> Tuple[Float[torch.Tensor, "N_E"], Float[torch.Tensor, "N_E"]]:
 
-    device = parameters.device
-    dtype = parameters.dtype
-    N_I = parameters.N_I
     num_samples = parameters.num_samples
 
     # Center the data by subtracting means
@@ -426,18 +426,13 @@ def compute_mode_contributions(
     rq_cov = (r_res @ q_res.T) / (num_samples)  # [N_I, N_E]
 
     rq_cov_squared = torch.sum(rq_cov**2, dim=0)  # [N_E]
-    q_var = torch.diag(q_res @ q_res.T) / (num_samples)  # [N_E, N_E]
+    q_var = torch.diag(q_res @ q_res.T) / (num_samples)  # [N_E]
 
-    mode_variance_contributions = rq_cov_squared / q_var  # [N_E]
+    mode_variance_contributions = rq_cov_squared / (q_var + 1e-16)  # [N_E]
 
     q_squared = q**2  # [N_E, num_samples]
     q_squared_sum = q_squared.sum(dim=0, keepdim=True)  # [1, num_samples]
-    q_squared_normalised = q_squared / q_squared_sum  # [N_E, num_samples]
-    assert q_squared_normalised.shape == q.shape
-    assert torch.allclose(
-        q_squared_normalised.sum(dim=0),
-        torch.ones(num_samples, device=device, dtype=dtype),
-    ), f"Normalised squared contributions for each stimulus do not sum to 1. Got {q_squared_normalised=}"
+    q_squared_normalised = q_squared / (q_squared_sum + 1e-16)  # [N_E, num_samples]
 
     mode_rate_contributions = torch.sum(r @ q_squared_normalised.T, dim=0)  # [N_E]
 

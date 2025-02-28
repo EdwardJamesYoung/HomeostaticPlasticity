@@ -1,7 +1,6 @@
 group_name: "laplace_inputs"
 
 base_params:
-  variance_homeostasis: True
   target_variance: 0.002
   wandb_logging: True
   random_seed: 1

@@ -32,6 +32,7 @@ class SimulationParameters:
     target_rate: Optional[float] = None
     target_variance: Optional[float] = None
     omega: float = 1.0
+    initial_feedforward_weight_scaling: float = 1.0
     activation_function_name: str = "rectified_quadratic"
     activation_function: ActivationFunction = RectifiedQuadratic()
     covariance_learning: bool = True
