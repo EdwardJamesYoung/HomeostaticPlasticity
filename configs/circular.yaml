@@ -6,7 +6,7 @@ base_params:
   random_seed: 1
   covariance_learning: True
   activation_function_name: "rectified_quadratic"
-  tau_u: 5.0
+  tau_u: 10.0
 
 param_grid:
   rate_homeostasis: [True, False]

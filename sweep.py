@@ -11,8 +11,10 @@ from params import SimulationParameters
 from simulator import run_simulation, generate_initial_weights
 from utils import save_matrix
 from input_generation import (
-    GaussianGenerator,
-    LaplacianGenerator,
+    OUGaussianGenerator,
+    PiecewiseConstantGaussianGenerator,
+    OULaplacianGenerator,
+    PiecewiseConstantLaplacianGenerator,
     CircularGenerator,
     generate_conditions,
 )
@@ -25,8 +27,10 @@ from activation_functions import (
 )
 
 INPUT_GENERATOR_MAP = {
-    "gaussian": GaussianGenerator,
-    "laplacian": LaplacianGenerator,
+    "ou_gaussian": OUGaussianGenerator,
+    "ou_laplacian": OULaplacianGenerator,
+    "const_gaussian": PiecewiseConstantGaussianGenerator,
+    "const_laplacian": PiecewiseConstantLaplacianGenerator,
     "circular": CircularGenerator,
 }
 

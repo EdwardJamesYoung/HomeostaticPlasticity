@@ -238,6 +238,11 @@ def mode_log(
     )
 
     wandb.log(
+        {"steady_state/attunment_entropy": input_generator.attunment_entropy(W)},
+        commit=False,
+    )
+
+    wandb.log(
         {f"steady_state/rate_ratio_{jj}": rate_ratio[jj] for jj in range(N_E)},
         commit=False,
     )

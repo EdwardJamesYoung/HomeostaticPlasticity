@@ -8,6 +8,9 @@ from typing import Dict, Any, Tuple
 from params import SimulationParameters
 
 
+EPSILON = 1e-12
+
+
 class InputGenerator(ABC):
 
     def __init__(self, parameters: SimulationParameters):
@@ -43,56 +46,108 @@ class InputGenerator(ABC):
     def mode_strengths(self) -> Float[torch.Tensor, "N_E"]:
         pass
 
+    @abstractmethod
+    def attunement_entropy(self, W: Float[torch.Tensor, "N_I N_E"]) -> float:
+        pass
 
-class GaussianGenerator(InputGenerator):
+
+class PiecewiseConstantGenerator(InputGenerator, ABC):
+
+    def __init__(self, parameters: SimulationParameters):
+        super().__init__(parameters=parameters)
+        self.steps_remaining = 0
+
+    @jaxtyped(typechecker=typechecked)
+    def step(self) -> Float[torch.Tensor, "N_E 1"]:
+        if self.steps_remaining == 0:
+            self.current_input, _ = self.stimuli_batch(1)
+            self.steps_remaining = int(self.tau_u / self.dt)
+        else:
+            self.steps_remaining -= 1
+
+        return self.current_input
+
+
+class OUProcessGenerator(InputGenerator, ABC):
 
     def __init__(
         self,
         parameters: SimulationParameters,
-        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
-        input_eigenspectrum: Float[torch.Tensor, "N_E"],
     ):
         super().__init__(parameters=parameters)
-        assert torch.allclose(
-            input_eigenbasis @ input_eigenbasis.T,
-            torch.eye(self.N_E, device=self.device, dtype=self.dtype),
-        ), "Input eigenbasis is not orthogonal"
-        # Verify that the input eigenspectrum is positive
-        assert torch.all(
-            input_eigenspectrum >= 0
-        ), "Input eigenspectrum has negative entries"
-
-        self.input_eigenbasis = input_eigenbasis.to(
-            device=self.device, dtype=self.dtype
-        )
-        self.input_eigenspectrum = input_eigenspectrum.to(
-            device=self.device, dtype=self.dtype
-        )
-        self.covariance_sqrt = self.input_eigenbasis @ torch.diag(
-            torch.sqrt(self.input_eigenspectrum)
-        )
 
         self.noise_amplitude = torch.sqrt(
             torch.tensor(
                 2.0 * self.dt / self.tau_u, device=self.device, dtype=self.dtype
             )
         )
-        self.covariance_sqrt = self.covariance_sqrt.to(
-            device=self.device, dtype=self.dtype
-        )
-        self.u = self.covariance_sqrt @ torch.randn(
-            (self.N_E, 1), device=self.device, dtype=self.dtype
-        )
+        self.latents = torch.randn((self.N_E, 1), device=self.device, dtype=self.dtype)
 
-    def __dict__(self) -> Dict[str, Any]:
-        return {"tau_u": self.tau_u}
+    @abstractmethod
+    def latents_to_input(
+        self, latents: Float[torch.Tensor, "N_E 1"]
+    ) -> Float[torch.Tensor, "N_E 1"]:
+        pass
 
     @jaxtyped(typechecker=typechecked)
     def step(self) -> Float[torch.Tensor, "N_E 1"]:
         dB = torch.randn((self.N_E, 1), device=self.device, dtype=self.dtype)
-        colored_noise = self.noise_amplitude * self.covariance_sqrt @ dB
-        self.u = (1 - self.dt / self.tau_u) * self.u + colored_noise
-        return self.u
+        self.latents = (
+            1 - self.dt / self.tau_u
+        ) * self.latents + self.noise_amplitude * dB
+        return self.latents_to_input(self.latents)
+
+
+class EigenbasisInputGenerator(ABC):
+
+    @jaxtyped(typechecker=typechecked)
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
+        input_eigenspectrum: Float[torch.Tensor, "N_E"],
+    ):
+        self.input_eigenbasis = input_eigenbasis.to(
+            device=parameters.device, dtype=parameters.dtype
+        )
+        self.input_eigenspectrum = input_eigenspectrum.to(
+            device=parameters.device, dtype=parameters.dtype
+        )
+        # Validate eigenbasis and eigenspectrum
+        assert torch.allclose(
+            input_eigenbasis @ input_eigenbasis.T,
+            torch.eye(parameters.N_E, device=parameters.device, dtype=parameters.dtype),
+        ), "Input eigenbasis is not orthogonal"
+        assert torch.all(
+            input_eigenspectrum >= 0
+        ), "Input eigenspectrum has negative entries"
+
+    @jaxtyped(typechecker=typechecked)
+    def mode_strengths(self) -> Float[torch.Tensor, "N_E"]:
+        return self.input_eigenspectrum
+
+    @jaxtyped(typechecker=typechecked)
+    def attunement_entropy(self, W: Float[torch.Tensor, "N_I N_E"]) -> float:
+        return covariance_attunement_entropy(W, self.input_eigenbasis)
+
+
+class GaussianDistributionGenerator(EigenbasisInputGenerator):
+
+    @jaxtyped(typechecker=typechecked)
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
+        input_eigenspectrum: Float[torch.Tensor, "N_E"],
+    ):
+        super().__init__(
+            parameters=parameters,
+            input_eigenbasis=input_eigenbasis,
+            input_eigenspectrum=input_eigenspectrum,
+        )
+        self.covariance_sqrt = self.input_eigenbasis @ torch.diag(
+            torch.sqrt(self.input_eigenspectrum)
+        )
 
     @jaxtyped(typechecker=typechecked)
     def stimuli_batch(self, num_stimuli: int) -> Tuple[
@@ -106,67 +161,25 @@ class GaussianGenerator(InputGenerator):
         mode_stimuli_contributions = (
             torch.diag(torch.sqrt(self.input_eigenspectrum)) @ white_noise
         )  # [N_E, num_stimuli]
-        stimuli = torch.matmul(self.input_eigenbasis, mode_stimuli_contributions)
+        stimuli = self.input_eigenbasis @ mode_stimuli_contributions
         return stimuli, mode_stimuli_contributions
 
+
+class LaplacianDistributionGenerator(EigenbasisInputGenerator):
+
     @jaxtyped(typechecker=typechecked)
-    def mode_strengths(self) -> Float[torch.Tensor, "N_E"]:
-        return self.input_eigenspectrum
-
-
-class LaplacianGenerator(InputGenerator):
-
     def __init__(
         self,
         parameters: SimulationParameters,
         input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
         input_eigenspectrum: Float[torch.Tensor, "N_E"],
     ):
-        super().__init__(parameters=parameters)
-        self.input_eigenbasis = input_eigenbasis
-        self.input_eigenspectrum = input_eigenspectrum
-        assert torch.allclose(
-            input_eigenbasis @ input_eigenbasis.T,
-            torch.eye(self.N_E, device=self.device, dtype=self.dtype),
-        ), "Input eigenbasis is not orthogonal"
-        # Verify that the input eigenspectrum is positive
-        assert torch.all(
-            input_eigenspectrum >= 0
-        ), "Input eigenspectrum has negative entries"
-
-        self.epsilon = 1e-12
-
-        self.noise_amplitude = torch.sqrt(
-            torch.tensor(
-                2.0 * self.dt / self.tau_u, device=self.device, dtype=self.dtype
-            )
+        super().__init__(
+            parameters=parameters,
+            input_eigenbasis=input_eigenbasis,
+            input_eigenspectrum=input_eigenspectrum,
         )
         self.scales = torch.sqrt(self.input_eigenspectrum / 2).unsqueeze(1)
-        self.z = torch.randn((self.N_E, 1), device=self.device, dtype=self.dtype)
-
-    def __dict__(self) -> Dict[str, Any]:
-        return {"tau_u": self.tau_u}
-
-    @jaxtyped(typechecker=typechecked)
-    def step(self) -> Float[torch.Tensor, "N_E 1"]:
-        dB = self.noise_amplitude * torch.randn(
-            (self.N_E, 1), device=self.device, dtype=self.dtype
-        )
-        self.z = (1 - self.dt / self.tau_u) * self.z + dB
-
-        x = self.gaussian_to_laplace(self.z)
-
-        return self.input_eigenbasis @ x
-
-    def gaussian_to_laplace(
-        self, z: Float[torch.Tensor, "N_E num_stimuli"]
-    ) -> Float[torch.Tensor, "N_E num_stimuli"]:
-        uniforms = 0.5 * (1 + torch.erf(z / torch.sqrt(torch.tensor(2.0))))
-        signs = torch.sign(2 * uniforms - 1.0)
-        abs_diff = torch.abs(2 * uniforms - 1.0)
-        x = signs * self.scales * torch.log(abs_diff + self.epsilon)
-
-        return x
 
     @jaxtyped(typechecker=typechecked)
     def stimuli_batch(self, num_stimuli: int) -> Tuple[
@@ -176,19 +189,106 @@ class LaplacianGenerator(InputGenerator):
         white_noise = torch.randn(
             (self.N_E, num_stimuli), device=self.device, dtype=self.dtype
         )
-        mode_stimuli_contributions = self.gaussian_to_laplace(white_noise)
+        mode_stimuli_contributions = gaussian_to_laplace(white_noise, self.scales)
         stimuli = self.input_eigenbasis @ mode_stimuli_contributions
-        return (
-            stimuli,
-            mode_stimuli_contributions,
+        return stimuli, mode_stimuli_contributions
+
+
+class PiecewiseConstantGaussianGenerator(
+    GaussianDistributionGenerator, PiecewiseConstantGenerator
+):
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
+        input_eigenspectrum: Float[torch.Tensor, "N_E"],
+    ):
+        PiecewiseConstantGenerator.__init__(self, parameters=parameters)
+        GaussianDistributionGenerator.__init__(
+            self,
+            parameters=parameters,
+            input_eigenbasis=input_eigenbasis,
+            input_eigenspectrum=input_eigenspectrum,
         )
 
+    def __dict__(self) -> Dict[str, Any]:
+        return {"tau_u": self.tau_u}
+
+
+class PiecewiseConstantLaplacianGenerator(
+    LaplacianDistributionGenerator, PiecewiseConstantGenerator
+):
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
+        input_eigenspectrum: Float[torch.Tensor, "N_E"],
+    ):
+        PiecewiseConstantGenerator.__init__(self, parameters=parameters)
+        LaplacianDistributionGenerator.__init__(
+            self,
+            parameters=parameters,
+            input_eigenbasis=input_eigenbasis,
+            input_eigenspectrum=input_eigenspectrum,
+        )
+
+    def __dict__(self) -> Dict[str, Any]:
+        return {"tau_u": self.tau_u}
+
+
+class OUGaussianGenerator(GaussianDistributionGenerator, OUProcessGenerator):
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
+        input_eigenspectrum: Float[torch.Tensor, "N_E"],
+    ):
+        OUProcessGenerator.__init__(self, parameters=parameters)
+        GaussianDistributionGenerator.__init__(
+            self,
+            parameters=parameters,
+            input_eigenbasis=input_eigenbasis,
+            input_eigenspectrum=input_eigenspectrum,
+        )
+
+    def __dict__(self) -> Dict[str, Any]:
+        return {"tau_u": self.tau_u}
+
     @jaxtyped(typechecker=typechecked)
-    def mode_strengths(self) -> Float[torch.Tensor, "N_E"]:
-        return self.input_eigenspectrum
+    def latents_to_input(
+        self, latents: Float[torch.Tensor, "N_E 1"]
+    ) -> Float[torch.Tensor, "N_E 1"]:
+        return self.covariance_sqrt @ latents
 
 
-class CircularGenerator(InputGenerator):
+class OULaplacianGenerator(LaplacianDistributionGenerator, OUProcessGenerator):
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        input_eigenbasis: Float[torch.Tensor, "N_E N_E"],
+        input_eigenspectrum: Float[torch.Tensor, "N_E"],
+    ):
+        OUProcessGenerator.__init__(self, parameters=parameters)
+        LaplacianDistributionGenerator.__init__(
+            self,
+            parameters=parameters,
+            input_eigenbasis=input_eigenbasis,
+            input_eigenspectrum=input_eigenspectrum,
+        )
+
+    def __dict__(self) -> Dict[str, Any]:
+        return {"tau_u": self.tau_u}
+
+    @jaxtyped(typechecker=typechecked)
+    def latents_to_input(
+        self, latents: Float[torch.Tensor, "N_E 1"]
+    ) -> Float[torch.Tensor, "N_E 1"]:
+        x = gaussian_to_laplace(latents, self.scales)
+
+        return self.input_eigenbasis @ x
+
+
+class CircularGenerator(PiecewiseConstantGenerator):
 
     def __init__(
         self,
@@ -217,14 +317,14 @@ class CircularGenerator(InputGenerator):
         self.input_scale = compute_input_magnitude(parameters)
 
         # Compute mode strengths as the density of the uniform von-mises mixture
-        self._mode_strengths = self.mixing_parameter * torch.exp(
+        self.sampling_probabilities = self.mixing_parameter * torch.exp(
             torch.distributions.VonMises(
                 loc=torch.zeros(1, device=self.device),
                 concentration=self.vm_concentration,
             ).log_prob(self.positions)
         ) + (1 - self.mixing_parameter) / (2 * torch.pi)
         # Renormlise mode strenghts to sum to one
-        self._mode_strengths /= self._mode_strengths.sum()
+        self.sampling_probabilities /= self.sampling_probabilities.sum()
 
         self.current_input, _ = self.stimuli_batch(1)
         self.steps_remaining = int(self.tau_u / self.dt)
@@ -238,23 +338,15 @@ class CircularGenerator(InputGenerator):
         }
 
     @jaxtyped(typechecker=typechecked)
-    def step(self) -> Float[torch.Tensor, "N_E 1"]:
-        if self.steps_remaining == 0:
-            self.current_input, _ = self.stimuli_batch(1)
-            self.steps_remaining = int(self.tau_u / self.dt)
-        else:
-            self.steps_remaining -= 1
-
-        return self.current_input
-
-    @jaxtyped(typechecker=typechecked)
     def stimuli_batch(
         self, num_stimuli: int
     ) -> Tuple[
         Float[torch.Tensor, "N_E num_stimuli"], Float[torch.Tensor, "N_E num_stimuli"]
     ]:
         mode_indices = torch.multinomial(
-            self._mode_strengths.squeeze(), num_samples=num_stimuli, replacement=True
+            self.sampling_probabilities.squeeze(),
+            num_samples=num_stimuli,
+            replacement=True,
         )  # [num_stimuli]
 
         # Compute the mode stimuli contributions as one-hot encodings of the mode_indices
@@ -272,7 +364,7 @@ class CircularGenerator(InputGenerator):
             * torch.exp(-(min_distances**2) / (2 * self.tuning_width**2)).to(
                 device=self.device, dtype=self.dtype
             )
-            / self.tuning_width
+            / (self.N_E * self.tuning_width)
         )
 
         return input_activities, mode_stimuli_contributions
@@ -283,7 +375,7 @@ class CircularGenerator(InputGenerator):
     ) -> Float[torch.Tensor, "1 num_stimuli"]:
         # Sample from the mode_strengths distribution
         mode_indices = torch.multinomial(
-            self._mode_strengths, num_samples=num_stimuli, replacement=True
+            self.sampling_probabilities, num_samples=num_stimuli, replacement=True
         )
         orientations = self.positions[mode_indices]
 
@@ -291,7 +383,11 @@ class CircularGenerator(InputGenerator):
 
     @jaxtyped(typechecker=typechecked)
     def mode_strengths(self):
-        return self._mode_strengths
+        return self.sampling_probabilities
+
+    @jaxtyped(typechecker=typechecked)
+    def attunement_entropy(self, W: Float[torch.Tensor, "N_I N_E"]) -> float:
+        return 0.0
 
 
 def generate_conditions(
@@ -333,3 +429,27 @@ def compute_input_magnitude(parameters: SimulationParameters):
         raise ValueError("Must specify either target rate or target variance")
 
     return (target * N_I) / (omega * N_E)
+
+
+def covariance_attunement_entropy(
+    W: Float[torch.Tensor, "N_I N_E"], input_eigenbasis: Float[torch.Tensor, "N_E N_E"]
+) -> float:
+    W_projected = W @ input_eigenbasis
+    W_projected_abs = torch.abs(W_projected)
+    W_projected_norm = W_projected_abs / (
+        torch.sum(W_projected_abs, dim=1, keepdim=True) + 1e-16
+    )
+    W_entropy = -torch.sum(W_projected_norm * torch.log(W_projected_norm), dim=1)
+    return torch.mean(W_entropy).item()
+
+
+def gaussian_to_laplace(
+    z: Float[torch.Tensor, "N_E num_stimuli"],
+    scales: Float[torch.Tensor, "N_E 1"],
+) -> Float[torch.Tensor, "N_E num_stimuli"]:
+    uniforms = 0.5 * (1 + torch.erf(z / torch.sqrt(torch.tensor(2.0))))
+    signs = torch.sign(2 * uniforms - 1.0)
+    abs_diff = torch.abs(2 * uniforms - 1.0)
+    x = signs * scales * torch.log(abs_diff + EPSILON)
+
+    return x
