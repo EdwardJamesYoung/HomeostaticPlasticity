@@ -8,7 +8,7 @@ base_params:
   activation_function_name: "rectified_quadratic"
   initial_feedforward_weight_scaling: 10.0
   tau_u: 5.0
-  T: 40000.0
+  T: 80000.0
 
 param_grid:
   rate_homeostasis: [True, False]
