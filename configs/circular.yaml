@@ -2,7 +2,7 @@ group_name: "circular_inputs_third_run"
 
 base_params:
   target_rate: 1.0
-  num_latents = 12
+  num_latents: 12
   wandb_logging: True
   covariance_learning: True
   activation_function_name: "rectified_quadratic"
