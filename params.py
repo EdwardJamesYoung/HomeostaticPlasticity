@@ -15,6 +15,7 @@ ACTIVATION_FUNCTION_MAP = {
 @dataclass
 class SimulationParameters:
     N_E: int = 10
+    num_latents: Optional[int] = None
     N_I: int = 100
     k_I: float = 10.0
     T: float = 120000.0
@@ -87,6 +88,10 @@ class SimulationParameters:
                 self.activation_function = ACTIVATION_FUNCTION_MAP[
                     self.activation_function_name
                 ]()
+
+        # Set the number of latents if not specified
+        if self.num_latents is None:
+            self.num_latents = self.N_E
 
     def to_dict(self):
         return asdict(self)

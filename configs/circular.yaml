@@ -1,9 +1,9 @@
-group_name: "circular_inputs_second_run"
+group_name: "circular_inputs_third_run"
 
 base_params:
   target_rate: 1.0
+  num_latents = 12
   wandb_logging: True
-  random_seed: 1
   covariance_learning: True
   activation_function_name: "rectified_quadratic"
   initial_feedforward_weight_scaling: 10.0
@@ -13,6 +13,7 @@ base_params:
 param_grid:
   rate_homeostasis: [True, False]
   k_I: [2.0, 10.0, 20.0]
+  random_seed: [5, 10]
 
   input_config:
     - type: "circular" 

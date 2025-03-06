@@ -1,10 +1,10 @@
 import torch
-from typing import Tuple
+from typing import Tuple, Any
 import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 
-from input_generation import InputGenerator
+from input_generation import InputGenerator, DiscreteGenerator
 from params import SimulationParameters
 
 
@@ -140,19 +140,30 @@ def run_simulation(
         else:
             new_k_E = k_E
 
+        log_dict = {}
+
         if wandb_logging and ii % int(mode_log_time / dt) == 0:
-            mode_log(W=W, M=M, input_generator=input_generator, parameters=parameters)
+            log_dict.update(
+                rate_mode_log(
+                    W=W, M=M, input_generator=input_generator, parameters=parameters
+                )
+            )
 
         if wandb_logging and ii % int(dynamics_log_time / dt) == 0:
-            dynamics_log(
-                dW=new_W - W,
-                dM=new_M - M,
-                k_E=k_E,
-                new_k_E=new_k_E,
-                r=r,
-                parameters=parameters,
-                iteration_step=ii,
+            log_dict.update(
+                dynamics_log(
+                    dW=new_W - W,
+                    dM=new_M - M,
+                    k_E=k_E,
+                    new_k_E=new_k_E,
+                    r=r,
+                    parameters=parameters,
+                    iteration_step=ii,
+                )
             )
+
+        if wandb_logging and log_dict:
+            wandb.log(log_dict)
 
         # Update the weight matrices
         W = new_W
@@ -177,12 +188,83 @@ def run_simulation(
 
 
 @jaxtyped(typechecker=typechecked)
-def mode_log(
+def rate_mode_log(
     W: Float[torch.Tensor, "N_I N_E"],
     M: Float[torch.Tensor, "N_I N_I"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
-):
+) -> dict[str, Any]:
+    if not isinstance(input_generator, DiscreteGenerator):
+        return {}
+
+    num_latents = parameters.num_latents
+
+    stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
+    stimuli_patterns = input_generator.stimuli_patterns  # [N_E, num_latents]
+    rates, _ = compute_firing_rates(
+        W,
+        M,
+        stimuli_patterns,
+        parameters=parameters,
+        threshold=1e-8,
+    )  # [N_I, num_latents]
+
+    mean_rate = torch.mean(rates, dim=(0, 1))  # Scalar
+    var_rate = torch.var(rates, dim=1).sum(dim=0)  # Scalar
+
+    stimuli_rates = torch.sum(rates, dim=0)  # [num_latents]
+    rate_probability_ratio = stimuli_rates / stimuli_probabilities
+    mean_rate_probability_ratio = torch.mean(rate_probability_ratio)
+    normalised_rate_probability_ratio = (
+        rate_probability_ratio / mean_rate_probability_ratio
+    )
+
+    rate_allocation_error = torch.mean(
+        torch.abs(rate_probability_ratio - mean_rate_probability_ratio)
+        / torch.abs(mean_rate_probability_ratio)
+    )
+
+    # Construct a dictionary with the quantities to be logged:
+    log_dict = {
+        "steady_state/population_rate": mean_rate,
+        "steady_state/population_variance": var_rate,
+    }
+    log_dict.update(
+        {
+            f"steady_state/stimuli_rate_{jj}": stimuli_rates[jj]
+            for jj in range(num_latents)
+        }
+    )
+    log_dict.update(
+        {
+            f"steady_state/rate_probability_ratio_{jj}": rate_probability_ratio[jj]
+            for jj in range(num_latents)
+        }
+    )
+    log_dict.update(
+        {
+            f"steady_state/normalised_rate_probability_ratio_{jj}": normalised_rate_probability_ratio[
+                jj
+            ]
+            for jj in range(num_latents)
+        }
+    )
+    log_dict.update(
+        {
+            "steady_state/rate_allocation_error": rate_allocation_error,
+        }
+    )
+
+    return log_dict
+
+
+@jaxtyped(typechecker=typechecked)
+def var_mode_log(
+    W: Float[torch.Tensor, "N_I N_E"],
+    M: Float[torch.Tensor, "N_I N_I"],
+    input_generator: InputGenerator,
+    parameters: SimulationParameters,
+) -> dict[str, Any]:
     N_E = parameters.N_E
     num_samples = parameters.num_samples
     stimuli, mode_stimuli_contributions = input_generator.stimuli_batch(
@@ -200,23 +282,15 @@ def mode_log(
     mean_rate = torch.mean(rates, dim=(0, 1))  # Scalar
     var_rate = torch.var(rates, dim=1).sum(dim=0)  # Scalar
 
-    mode_rate_contributions, mode_variance_contributions = compute_mode_contributions(
+    mode_variance_contributions = compute_variance_contributions(
         rates, mode_stimuli_contributions, parameters
     )
 
     mode_strengths = input_generator.mode_strengths()
-    rate_ratio = mode_rate_contributions / mode_strengths
     variance_ratio = mode_variance_contributions / mode_strengths
-
-    mean_rate_ratio = torch.mean(rate_ratio)
     mean_variance_ratio = torch.mean(variance_ratio)
+    normalised_variance_ratio = variance_ratio / mean_variance_ratio
 
-    normalised_rate_ratio = rate_ratio / mean_rate_ratio  # Has mean 1
-    normalised_variance_ratio = variance_ratio / mean_variance_ratio  # Has mean 1
-
-    rate_allocation_error = torch.mean(
-        torch.abs(rate_ratio - mean_rate_ratio) / torch.abs(mean_rate_ratio)
-    )
     variance_allocation_error = torch.mean(
         torch.abs(variance_ratio - mean_variance_ratio) / torch.abs(mean_variance_ratio)
     )
@@ -283,7 +357,7 @@ def dynamics_log(
     r: Float[torch.Tensor, "N_I"],
     parameters: SimulationParameters,
     iteration_step: int,
-):
+) -> dict[str, Any]:
     N_E = parameters.N_E
     N_I = parameters.N_I
     dt = parameters.dt
@@ -294,17 +368,16 @@ def dynamics_log(
         N_I * dt
     )
 
-    wandb.log(
-        {
-            "dynamics/recurrent_update_magnitude": recurrent_update_magnitude,
-            "dynamics/feedforward_update_magnitude": feedforward_update_magnitude,
-            "dynamics/excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
-            "dynamics/average_excitatory_mass": torch.mean(new_k_E).item(),
-            "dynamics/average_neuron_rate": torch.mean(r).item(),
-            "time": dt * iteration_step,
-        },
-        commit=True,
-    )
+    log_dict = {
+        "dynamics/recurrent_update_magnitude": recurrent_update_magnitude,
+        "dynamics/feedforward_update_magnitude": feedforward_update_magnitude,
+        "dynamics/excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
+        "dynamics/average_excitatory_mass": torch.mean(new_k_E).item(),
+        "dynamics/average_neuron_rate": torch.mean(r).item(),
+        "time": dt * iteration_step,
+    }
+
+    return log_dict
 
 
 @jaxtyped(typechecker=typechecked)
@@ -410,11 +483,11 @@ def compute_firing_rates(
 
 
 @jaxtyped(typechecker=typechecked)
-def compute_mode_contributions(
+def compute_variance_contributions(
     r: Float[torch.Tensor, "N_I num_samples"],
     q: Float[torch.Tensor, "N_E num_samples"],
     parameters: SimulationParameters,
-) -> Tuple[Float[torch.Tensor, "N_E"], Float[torch.Tensor, "N_E"]]:
+) -> Float[torch.Tensor, "N_E"]:
 
     num_samples = parameters.num_samples
 
@@ -430,10 +503,4 @@ def compute_mode_contributions(
 
     mode_variance_contributions = rq_cov_squared / (q_var + 1e-16)  # [N_E]
 
-    q_squared = q**2  # [N_E, num_samples]
-    q_squared_sum = q_squared.sum(dim=0, keepdim=True)  # [1, num_samples]
-    q_squared_normalised = q_squared / (q_squared_sum + 1e-16)  # [N_E, num_samples]
-
-    mode_rate_contributions = torch.sum(r @ q_squared_normalised.T, dim=0)  # [N_E]
-
-    return mode_rate_contributions, mode_variance_contributions
+    return mode_variance_contributions
