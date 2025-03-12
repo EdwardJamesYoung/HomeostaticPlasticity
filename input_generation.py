@@ -457,10 +457,14 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         min_distances = torch.minimum(circ_distances, 2 * torch.pi - circ_distances)  #
 
         # Compute tuning curve responses
-        stimuli_patterns = (
-            compute_input_magnitude(self.parameters)
-            * torch.exp(-(min_distances**2) / (2 * self.tuning_width**2))
-            / (self.N_E * self.tuning_width)
+        # stimuli_patterns = (
+        #     compute_input_magnitude(self.parameters)
+        #     * torch.exp(-(min_distances**2) / (2 * self.tuning_width**2))
+        #     / (self.tuning_width)
+        # ).to(device=self.device, dtype=self.dtype)
+
+        stimuli_patterns = torch.exp(
+            -(min_distances**2) / (2 * self.tuning_width**2)
         ).to(device=self.device, dtype=self.dtype)
 
         return stimuli_patterns
@@ -530,7 +534,6 @@ def generate_conditions(
 
 
 def compute_input_magnitude(parameters: SimulationParameters):
-    N_E = parameters.N_E
     num_latents = parameters.num_latents
     N_I = parameters.N_I
     omega = parameters.omega
