@@ -397,13 +397,13 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         self.vm_concentration = vm_concentration
         self.tuning_width = tuning_width
         self.neuron_positions = torch.linspace(
-            -torch.pi, torch.pi, self.N_E, device=self.device
-        ).view(
+            -torch.pi, torch.pi, self.N_E + 1, device=self.device
+        )[: self.N_E].view(
             -1, 1
         )  # [N_E, 1]
         self.stimuli_positions = torch.linspace(
-            -torch.pi, torch.pi, self.num_latents, device=self.device
-        ).view(
+            -torch.pi, torch.pi, self.num_latents + 1, device=self.device
+        )[: self.num_latents].view(
             -1, 1
         )  # [num_latents, 1]
 

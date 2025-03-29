@@ -6,11 +6,12 @@ base_params:
   random_seed: 1
   covariance_learning: True
   activation_function_name: "rectified_quadratic"
-  initial_feedforward_weight_scaling: 10.0
+  initial_feedforward_weight_scaling: 0.1
   tau_u: 5.0
   T: 1000.0
   k_I: 20.0
   rate_homeostasis: True
+  mode_log_time: 100.0
   num_latents: 20
 
 param_grid:
