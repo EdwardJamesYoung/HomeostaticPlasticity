@@ -1,0 +1,30 @@
+group_name: "input_width_sweep"
+
+base_params:
+  target_rate: 1.0
+  num_latents: 100
+  N_E: 100
+  N_I: 50
+  wandb_logging: True
+  random_seed: 1
+  covariance_learning: False
+  activation_function_name: "rectified_quadratic"
+  initial_feedforward_weight_scaling: 0.1
+  dt: 0.1
+  tau_u: 50.0
+  tau_M: 5000.0
+  tau_W: 10000.0
+  tau_k: 20000.0
+  T: 500000.0
+  rate_homeostasis: True
+
+param_grid:
+  variable_input_mass: [True, False]
+  k_I: [5.0, 10.0, 20.0]
+  
+  input_config:
+    - type: "circular" 
+      param_grid:  
+        mixing_parameter: [0.2, 0.5]
+        vm_concentration: [1.0]
+        tuning_width: [0.25, 0.5, 1.0] 

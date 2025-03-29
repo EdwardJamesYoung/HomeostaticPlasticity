@@ -217,6 +217,10 @@ def run_grid_experiments(
 
             initial_W, initial_M = generate_initial_weights(parameters)
 
+            # Take the absolute value of the weights for the circular inputs
+            if isinstance(input_generator, CircularGenerator):
+                initial_W = torch.abs(initial_W)
+
             # Save initial matrices
             save_matrix(initial_W, "initial_W")
             save_matrix(initial_M, "initial_M")

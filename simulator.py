@@ -325,10 +325,10 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     # Normalise the sum of each row to be k_E
     initial_W = k_E * initial_W / torch.sum(torch.abs(initial_W), dim=1, keepdim=True)
 
-    # Construct M to be diagonally dominant
-    initial_M = torch.rand(N_I, N_I, device=device, dtype=dtype) + N_I * torch.eye(
-        N_I, device=device, dtype=dtype
-    )
+    # Construct M to be strongly diagonal
+    initial_M = torch.rand(N_I, N_I, device=device, dtype=dtype) + (
+        N_I / 2
+    ) * torch.eye(N_I, device=device, dtype=dtype)
     # Renormalise M
     initial_M = k_I * initial_M / torch.sum(initial_M, dim=1, keepdim=True)
 
