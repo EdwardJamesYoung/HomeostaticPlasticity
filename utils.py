@@ -20,7 +20,7 @@ def circular_discrepancy(
     # Compute the difference
     diff = np.abs(normalised_curve_1 - normalised_curve_2)
     # Integrate over [-\pi,\pi)
-    discrepancy = np.trapezoid(diff, dx=2 * np.pi / len(curve_1))
+    discrepancy = np.sum(diff) * (2 * np.pi / len(diff))
     return discrepancy
 
 
