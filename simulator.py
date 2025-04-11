@@ -3,7 +3,7 @@ import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 
-from input_generation import InputGenerator
+from input_generation import InputGenerator, DiscreteGenerator
 from params import SimulationParameters
 from compute_metrics import (
     rate_mode_log,
@@ -177,6 +177,192 @@ def run_simulation(
         M = new_M
         k_E = new_k_E
         u = input_generator.step()
+
+        if torch.isnan(W).any():
+            print("NaNs in the feedforward weight matrix")
+            break
+        if torch.isnan(M).any():
+            print("NaNs in the recurrent weight matrix")
+            break
+        if torch.isnan(k_E).any():
+            print("NaNs in the excitatory mass")
+            break
+        if torch.isnan(r).any():
+            print("NaNs in the firing rates")
+            break
+
+    return W, M
+
+
+@jaxtyped(typechecker=typechecked)
+def deterministic_simulation(
+    initial_W: Float[torch.Tensor, "N_I N_E"],
+    initial_M: Float[torch.Tensor, "N_I N_I"],
+    input_generator: DiscreteGenerator,
+    parameters: SimulationParameters,
+):
+    """
+    Simulates non-linear dynamics of a neural network.
+
+    Args:
+        initial_W (torch.Tensor): The initial input feedforward weight matrix.
+        initial_M (torch.Tensor): The initial recurrent weight matrix.
+        input_eigenspectrum (torch.Tensor): The eigenvalues of the input covariance matrix.
+        input_eigenbasis (torch.Tensor): The eigenvectors of the input covariance matrix.
+        activation_function (Callable): The non-linearity of the neural network.
+        parameters (SimulationParameters): The parameters of the simulation.
+
+    Returns:
+        _type_: _description_
+    """
+    # Unpack from parameters
+    N_E = parameters.N_E
+    N_I = parameters.N_I
+    k_I = parameters.k_I
+    target_rate = parameters.target_rate
+    target_variance = parameters.target_variance
+    variable_input_mass = parameters.variable_input_mass
+    T = parameters.T
+    dt = parameters.dt
+    tau_v = parameters.tau_v
+    tau_u = parameters.tau_u
+    tau_M = parameters.tau_M
+    tau_W = parameters.tau_W
+    tau_k = parameters.tau_k
+    zeta = parameters.zeta
+    alpha = parameters.alpha
+    activation_function = parameters.activation_function
+    covariance_learning = parameters.covariance_learning
+    dynamics_log_time = parameters.dynamics_log_time
+    mode_log_time = parameters.mode_log_time
+    wandb_logging = parameters.wandb_logging
+    device = parameters.device
+    dtype = parameters.dtype
+    rate_homeostasis = parameters.rate_homeostasis
+    variance_homeostasis = parameters.variance_homeostasis
+
+    # === Perform checks on the input ===
+
+    assert (
+        mode_log_time % dynamics_log_time == 0
+    ), f"mode_log_time must be a multiple of dynamics_log_time for fiddly annoying reasons. Got mode log time {mode_log_time} and dynamics log time {dynamics_log_time}"
+
+    # Verify that the input feedforward weights has the correct shape
+    assert initial_W.shape == (
+        N_I,
+        N_E,
+    ), f"Initial feedforward weight matrix has wrong shape. Expected {(N_I, N_E)}, got {initial_W.shape}"
+    # Verify that the initial recurrent weights has the correct shape
+    assert initial_M.shape == (
+        N_I,
+        N_I,
+    ), f"Initial recurrent weight matrix has wrong shape. Expected {(N_I, N_I)}, got {initial_M.shape}"
+    # Verify that the initial recurrent weight matrix is non-negative
+    assert torch.all(
+        initial_M >= 0
+    ), "Initial recurrent weight matrix has negative entries"
+
+    # === Set up before the simulation ===
+    W = initial_W.clone()
+    M = initial_M.clone()
+
+    # Move relevant matrices to the device
+    W = W.to(device)
+    M = M.to(device)
+
+    # Initialize k_E, W_norm, and M_norm
+    k_E = torch.sum(torch.abs(W), dim=1)
+    W_norm = torch.sum(torch.abs(W), dim=1)
+    M_norm = torch.sum(M, dim=1)
+
+    # Initialise the input, firing rates, and mean-firing rate
+    stimuli = input_generator.stimuli_patterns  # [N_E, num_latents]
+    probabilities = input_generator.stimuli_probabilities  # [num_latents]
+
+    # Each update step will be tau_u time steps long
+    total_update_steps = int(T / tau_u)
+    W_lr = tau_u / tau_W
+    M_lr = tau_u / tau_M
+    k_lr = tau_u / tau_k
+
+    v = None
+
+    for ii in range(total_update_steps):
+        r, v = compute_firing_rates(
+            W, M, stimuli, parameters, v_init=v
+        )  # [N_I, num_latents]
+
+        dW = torch.einsum("ij,j,kj->ik", r, probabilities, stimuli)  # [N_I, N_E]
+        dM = torch.einsum("ij,j,kj->ik", r, probabilities, r)  # [N_I, N_I]
+
+        # Update the excitatory mass
+        if variable_input_mass:
+            if rate_homeostasis:
+                avg_rate = torch.einsum("ij,j->i", r, probabilities)  # [N_I]
+                ratio = avg_rate / target_rate
+            elif variance_homeostasis:
+                pass
+                # ratio = (r - r_bar).squeeze(-1) ** 2 / target_variance
+            else:
+                ratio = torch.ones_like(r).mean(dim=1)
+
+            new_k_E = k_E + k_lr * (1 - ratio)
+            new_k_E = torch.clamp(new_k_E, min=1e-14)
+
+        else:
+            new_k_E = k_E
+
+        # Update the norms of the weight matrices:
+        W_norm = (1 - zeta * W_lr) * W_norm + (zeta * W_lr) * new_k_E
+        M_norm = (1 - alpha * M_lr) * M_norm + (alpha * M_lr) * k_I
+
+        # Update the weight matrices:
+        new_W = W + W_lr * dW  # [N_I, N_E]
+        new_M = M + M_lr * dM  # [N_I, N_I]
+
+        # Rectify all the weights:
+        new_M = torch.clamp(new_M, min=1e-16)  # [N_I, N_I]
+        new_W = torch.clamp(new_W, min=1e-16)  # [N_I, N_E]
+
+        # Renormalize the weight matrices
+        new_W = (
+            torch.diag(W_norm / (torch.sum(torch.abs(new_W), dim=1) + 1e-12)) @ new_W
+        )  # [N_I, N_E]
+        new_M = (
+            torch.diag(M_norm / (torch.sum(new_M, dim=1) + 1e-12)) @ new_M
+        )  # [N_I, N_I]
+
+        # It's logging time!
+        log_dict = {}
+
+        if wandb_logging and ii % int(mode_log_time / tau_u) == 0:
+            population_response_metrics = compute_population_response_metrics(
+                W=W, M=M, input_generator=input_generator, parameters=parameters
+            )
+            log_dict.update(compute_discrepancies(population_response_metrics))
+
+            log_dict.update(rate_mode_log(population_response_metrics, parameters))
+
+        if wandb_logging and ii % int(dynamics_log_time / tau_u) == 0:
+            log_dict.update(
+                dynamics_log(
+                    dW=new_W - W,
+                    dM=new_M - M,
+                    k_E=k_E,
+                    new_k_E=new_k_E,
+                    r=r,
+                    parameters=parameters,
+                    iteration_step=ii,
+                )
+            )
+
+        if wandb_logging and log_dict:
+            wandb.log(log_dict)
+
+        # Update the weight matrices
+        W = new_W
+        M = new_M
+        k_E = new_k_E
 
         if torch.isnan(W).any():
             print("NaNs in the feedforward weight matrix")

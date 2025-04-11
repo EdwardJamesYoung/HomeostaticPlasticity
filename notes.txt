@@ -1,0 +1,17 @@
+New notes from expectation updates:
+
+Results with homeostasis on and a tuning width of 0.75
+for k_I = 5, the density peak is too high. It's much higher than the stimuli probability
+for k_I = 10, the peak is still too high. 
+for k_I = 15, the peak is a little too high, but we're getting close. 
+for k_I = 20, the peak still ends up too high! but it takes longer. 
+
+The longer these run, the more extreme the changes get. 
+    I'm not sure that it's actually getting closer to the desired shape. I think it might just be taking longer. 
+Perhaps at convergence you get that the orange curve is equal to the green curve? 
+Alternatively we're just not actually in the inhibition dominated regime yet. It might just require a higher value of k_I to reach this regime.
+
+
+It looks like perhaps the total rate of the population is equal to the average input convolved with the input width... but this doesn't make much sense to me at this point. 
+
+

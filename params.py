@@ -6,6 +6,7 @@ from activation_functions import *
 ACTIVATION_FUNCTION_MAP = {
     "rectified_quadratic": RectifiedQuadratic,
     "rectified_linear": RectifiedLinear,
+    "rectified_powerlaw_1p5": RectifiedPowerlaw1p5,
     "rectified_cubic": RectifiedCubic,
     "cubic": Cubic,
     "linear": Linear,

@@ -51,6 +51,18 @@ class RectifiedLinear(ActivationFunction):
         return r
 
 
+class RectifiedPowerlaw1p5(ActivationFunction):
+    @property
+    def rectified(self) -> float:
+        return 1.0
+
+    def unsaturated_call(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.max(torch.zeros_like(x), x) ** 1.5
+
+    def inverse(self, r: float) -> float:
+        return r ** (2 / 3)
+
+
 class RectifiedCubic(ActivationFunction):
     @property
     def rectified(self) -> float:

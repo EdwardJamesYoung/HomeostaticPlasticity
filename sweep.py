@@ -8,7 +8,7 @@ import gc
 from dataclasses import asdict
 
 from params import SimulationParameters
-from simulator import run_simulation, generate_initial_weights
+from simulator import run_simulation, generate_initial_weights, deterministic_simulation
 from utils import save_matrix
 from input_generation import (
     OUGaussianGenerator,
@@ -21,6 +21,7 @@ from input_generation import (
 from activation_functions import (
     RectifiedQuadratic,
     RectifiedLinear,
+    RectifiedPowerlaw1p5,
     RectifiedCubic,
     Cubic,
     Linear,
@@ -37,6 +38,7 @@ INPUT_GENERATOR_MAP = {
 ACTIVATION_FUNCTION_MAP = {
     "rectified_quadratic": RectifiedQuadratic,
     "rectified_linear": RectifiedLinear,
+    "rectified_powerlaw_1p5": RectifiedPowerlaw1p5,
     "rectified_cubic": RectifiedCubic,
     "cubic": Cubic,
     "linear": Linear,
@@ -226,7 +228,14 @@ def run_grid_experiments(
             save_matrix(initial_M, "initial_M")
 
             # Run simulation
-            W, M = run_simulation(
+            # W, M = run_simulation(
+            #     initial_W=initial_W,
+            #     initial_M=initial_M,
+            #     input_generator=input_generator,
+            #     parameters=parameters,
+            # )
+
+            W, M = deterministic_simulation(
                 initial_W=initial_W,
                 initial_M=initial_M,
                 input_generator=input_generator,

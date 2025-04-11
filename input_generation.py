@@ -397,12 +397,16 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         self.vm_concentration = vm_concentration
         self.tuning_width = tuning_width
         self.neuron_positions = torch.linspace(
-            -torch.pi, torch.pi, self.N_E + 1, device=self.device
+            -torch.pi, torch.pi, self.N_E + 1, device=self.device, dtype=self.dtype
         )[: self.N_E].view(
             -1, 1
         )  # [N_E, 1]
         self.stimuli_positions = torch.linspace(
-            -torch.pi, torch.pi, self.num_latents + 1, device=self.device
+            -torch.pi,
+            torch.pi,
+            self.num_latents + 1,
+            device=self.device,
+            dtype=self.dtype,
         )[: self.num_latents].view(
             -1, 1
         )  # [num_latents, 1]
@@ -439,6 +443,7 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         ) + (1 - self.mixing_parameter) / (2 * torch.pi)
         # Renormlise mode strenghts to sum to one
         stimuli_probabilities /= stimuli_probabilities.sum()
+        stimuli_probabilities.to(device=self.device, dtype=self.dtype)
 
         return stimuli_probabilities.squeeze()  # [num_latents]
 

@@ -1,13 +1,19 @@
 import torch
 import numpy as np
-from typing import Tuple, Any
+from typing import Tuple, Any, Optional
 import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 
 from input_generation import InputGenerator, DiscreteGenerator, CircularGenerator
 from params import SimulationParameters
-from utils import circular_discrepancy, circular_kde, circular_smooth_values
+from utils import (
+    circular_discrepancy,
+    circular_kde,
+    circular_smooth_values,
+    circular_smooth_median,
+    circular_smooth_huber,
+)
 from scipy.interpolate import interp1d
 
 
@@ -17,8 +23,9 @@ def compute_firing_rates(
     M: Float[torch.Tensor, "N_I N_I"],
     u: Float[torch.Tensor, "N_E num_stimuli"],
     parameters: SimulationParameters,
+    v_init: Optional[Float[torch.Tensor, "N_I num_stimuli"]] = None,
     threshold=1e-8,
-    max_iter=100000,
+    max_iter=1000000,
 ) -> tuple[
     Float[torch.Tensor, "N_I num_stimuli"], Float[torch.Tensor, "N_I num_stimuli"]
 ]:
@@ -35,13 +42,16 @@ def compute_firing_rates(
         torch.Tensor: The firing rates of the network.
     """
     # Unpack from parameters
-    dt = 0.5 * parameters.dt
+    dt = 0.25 * parameters.dt
     tau_v = parameters.tau_v
     activation_function = parameters.activation_function
 
     # Initialise the input h and the voltage v
     h = W @ u
-    v = torch.zeros_like(h)
+    if v_init is not None:
+        v = v_init
+    else:
+        v = torch.zeros_like(h)
     r = activation_function(v)
     r_dot = float("inf")
     counter = 0
@@ -76,6 +86,14 @@ def compute_population_response_metrics(
     N_I = parameters.N_I
 
     stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
+    activated_stimuli_probabilities = parameters.activation_function(
+        stimuli_probabilities
+    )  # [num_latents]
+    # Normalise this to sum to 1
+    activated_stimuli_probabilities = (
+        activated_stimuli_probabilities / activated_stimuli_probabilities.sum()
+    )  # [num_latents]
+
     stimuli_patterns = input_generator.stimuli_patterns  # [N_E, num_latents]
     average_input_activation = stimuli_patterns @ stimuli_probabilities.to(
         dtype=stimuli_patterns.dtype
@@ -92,6 +110,50 @@ def compute_population_response_metrics(
         parameters=parameters,
         threshold=1e-8,
     )  # [N_I, num_latents]
+    average_rates = rates @ stimuli_probabilities  # [N_I] (average rate of each neuron)
+
+    # Compute the integral of the tuning curves against the stimuli patterns
+    pattern_overlaps = (
+        rates @ stimuli_patterns.T
+    )  # [N_I, num_latents] @ [num_latents, N_E] = [N_I, N_E]
+    # Normalise to turn the sum into an integral
+    pattern_overlaps = pattern_overlaps * (2 * torch.pi / num_latents)  # [N_I, N_E]
+
+    # Compute the input pattern overlap matrix
+    overlap_matrix = (
+        stimuli_patterns @ stimuli_patterns.T
+    )  # [N_E, num_latents] @ [num_latents, N_E] = [N_E, N_E]
+
+    # Compute the inverse overlap matrix
+    # inverse_overlap_matrix = torch.linalg.inv(overlap_matrix)  # [N_E, N_E]
+    generalised_gain_matrix = torch.linalg.solve(
+        overlap_matrix,
+        pattern_overlaps.T,
+    )  # [N_E, N_E] @ [N_E, N_I] = [N_E, N_I]
+    # This assumes that the overlap matrix is invertible.
+    # This requires that num_latents >= N_E.
+
+    # Compute the generalised density
+    generalised_density = (
+        generalised_gain_matrix / generalised_gain_matrix.sum(axis=0, keepdim=True)
+    ).sum(
+        axis=1
+    )  # [N_E]
+
+    # Compute the generalised gain
+    generalised_gain = (generalised_gain_matrix / generalised_density.unsqueeze(1)).sum(
+        axis=1
+    )  # [N_E]
+
+    # Take the inner product against the input patterns to get the density of the preferred stimulus
+    generalised_density = (
+        generalised_density @ stimuli_patterns
+    )  # [N_E] @ [N_E, num_latents] = [num_latents]
+
+    # Take the inner product against the input patterns to get the gain of the preferred stimulus
+    generalised_gain = (
+        generalised_gain @ stimuli_patterns
+    )  # [N_E] @ [N_E, num_latents] = [num_latents]
 
     argmax_rates = rates.argmax(
         axis=1
@@ -110,9 +172,14 @@ def compute_population_response_metrics(
     argmax_stimuli = argmax_stimuli  # [N_I] (stimuli of max response)
 
     bw_multiplier = N_I ** (-0.2)
+    max_rate_range = max_rates.max() - max_rates.min()
 
-    smoothed_max_rates = circular_smooth_values(
-        argmax_stimuli, normalised_max_rates, stimulus_space, bw=bw_multiplier * 0.4
+    smoothed_max_rates = circular_smooth_huber(
+        argmax_stimuli,
+        max_rates,
+        stimulus_space,
+        bw=bw_multiplier * 0.4,
+        delta=0.25 * max_rate_range.item(),
     )  # [num_latents]
 
     preferred_stimulus_density = circular_kde(
@@ -136,6 +203,13 @@ def compute_population_response_metrics(
         "smoothed_max_rates": smoothed_max_rates.detach().cpu().numpy(),
         "preferred_stimulus_density": preferred_stimulus_density.detach().cpu().numpy(),
         "density_times_gain": density_times_gain.detach().cpu().numpy(),
+        "average_rates": average_rates.detach().cpu().numpy(),
+        "pattern_overlaps": pattern_overlaps.detach().cpu().numpy(),
+        "generalised_density": generalised_density.detach().cpu().numpy(),
+        "generalised_gain": generalised_gain.detach().cpu().numpy(),
+        "activated_stimuli_probabilities": activated_stimuli_probabilities.detach()
+        .cpu()
+        .numpy(),
     }
 
     return population_response_metrics
@@ -149,60 +223,71 @@ def compute_discrepancies(
     normalised_total_rate = population_response_metrics[
         "normalised_total_rate"
     ]  # [num_latents]
-    density_times_gain = population_response_metrics[
-        "density_times_gain"
-    ]  # [num_latents]
-    average_input_activation = population_response_metrics[
-        "normalised_average_input_activation"
-    ]  # [N_E]
     preferred_stimulus_density = population_response_metrics[
         "preferred_stimulus_density"
     ]  # [num_latents]
-    stimulus_space = population_response_metrics["stimulus_space"]  # [num_latents]
+    activated_stimuli_probabilities = population_response_metrics[
+        "activated_stimuli_probabilities"
+    ]  # [num_latents]
+    stimuli_probabilities = population_response_metrics[
+        "stimuli_probabilities"
+    ]  # [num_latents]
+    constant_curve = np.ones_like(normalised_total_rate) / len(
+        normalised_total_rate
+    )  # [num_latents]
+    # stimulus_space = population_response_metrics["stimulus_space"]  # [num_latents]
 
     # Create interpolated version of average_input_activation
     # First, create a mapping from N_E input space to the circular stimulus space
-    N_E = len(average_input_activation)
-    num_latents = len(stimulus_space)
+    # N_E = len(average_input_activation)
+    # num_latents = len(stimulus_space)
 
-    # Interpolate from N_E space to num_latents space using 1D linear interpolation
-    input_indices = np.linspace(0, 2 * np.pi, N_E, endpoint=False)
+    # # Interpolate from N_E space to num_latents space using 1D linear interpolation
+    # input_indices = np.linspace(0, 2 * np.pi, N_E, endpoint=False)
 
-    # Create interpolation function
-    interpolation_function = interp1d(
-        input_indices,
-        average_input_activation,
-        kind="linear",
-        bounds_error=False,
-        fill_value=(average_input_activation[-1], average_input_activation[0]),
-    )
+    # # Create interpolation function
+    # interpolation_function = interp1d(
+    #     input_indices,
+    #     average_input_activation,
+    #     kind="linear",
+    #     bounds_error=False,
+    #     fill_value=(average_input_activation[-1], average_input_activation[0]),
+    # )
 
-    # Evaluate at stimulus positions
-    target_positions = np.linspace(0, 2 * np.pi, num_latents, endpoint=False)
-    interpolated_average_input_activation = interpolation_function(target_positions)
+    # # Evaluate at stimulus positions
+    # target_positions = np.linspace(0, 2 * np.pi, num_latents, endpoint=False)
+    # interpolated_average_input_activation = interpolation_function(target_positions)
 
-    # Normalize
-    interpolated_average_input_activation = (
-        interpolated_average_input_activation
-        / interpolated_average_input_activation.sum()
-    )
+    # # Normalize
+    # interpolated_average_input_activation = (
+    #     interpolated_average_input_activation
+    #     / interpolated_average_input_activation.sum()
+    # )
 
-    discrepancies = {
-        "discrepancy/diff(constant, normalised_total_rate)": circular_discrepancy(
-            normalised_total_rate,
-            np.ones_like(normalised_total_rate) / len(normalised_total_rate),
-        ),
-        "discrepancy/diff(constant, density_times_gain)": circular_discrepancy(
-            density_times_gain,
-            np.ones_like(density_times_gain) / len(density_times_gain),
-        ),
-        "discrepancy/diff(density_times_gain, normalised_total_rate)": circular_discrepancy(
-            density_times_gain, normalised_total_rate
-        ),
-        "discrepancy/diff(normalised_average_input_activation, preferred_stimulus_density)": circular_discrepancy(
-            interpolated_average_input_activation, preferred_stimulus_density
-        ),
+    # What are all the quantities of interest that we want to compute the distance matrix for?
+    # 1. The (normalised) total rate
+    # 2. The probabilities
+    # 3. The density
+    # 4. The activated stimulus probabilities
+    # 5. The constant curve
+
+    curves = {
+        "r": normalised_total_rate,
+        "p": stimuli_probabilities,
+        "F(p)": activated_stimuli_probabilities,
+        "d": preferred_stimulus_density,
+        "c": constant_curve,
     }
+
+    # Compute the discrepancies between the curves
+    discrepancies = {}
+    for curve_1_name, curve_1 in curves.items():
+        for curve_2_name, curve_2 in curves.items():
+            if curve_1_name != curve_2_name:
+                # Compute the circular discrepancy between the two curves
+                discrepancy = circular_discrepancy(curve_1, curve_2)
+                # Store the discrepancy in the dictionary
+                discrepancies[f"diff/diff({curve_1_name},{curve_2_name})"] = discrepancy
 
     return discrepancies
 

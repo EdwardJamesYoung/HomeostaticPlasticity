@@ -48,6 +48,90 @@ def circular_kde(
 
 
 @jaxtyped(typechecker=typechecked)
+def circular_smooth_median(
+    argmax_stimuli: Float[torch.Tensor, "N_I"],
+    max_rates: Float[torch.Tensor, "N_I"],
+    stimulus_space: Float[torch.Tensor, "num_latents"],
+    bw: float = 0.25,
+) -> Float[torch.Tensor, "num_latents"]:
+    diff = torch.abs(
+        stimulus_space.unsqueeze(0) - argmax_stimuli.unsqueeze(1)
+    )  # [N_I, num_latents]
+    diff = torch.minimum(diff, 2 * torch.pi - diff)  # [N_I, num_latents]
+    gaussians = torch.exp(-0.5 * (diff / bw) ** 2) / (
+        bw * np.sqrt(2 * torch.pi)
+    )  # [N_I, num_latents]
+    weights = gaussians / gaussians.sum(dim=0)  # [N_I, num_latents]
+
+    sorted_indices = torch.argsort(max_rates)  # [N_I]
+    sorted_rates = max_rates[sorted_indices]  # [N_I]
+    sorted_weights = weights[sorted_indices, :]  # [N_I, num_latents]
+
+    cumulative_weights = torch.cumsum(sorted_weights, dim=0)  # [N_I, num_latents]
+
+    # This creates a mask where True indicates cumulative weight >= 0.5
+    mask = cumulative_weights >= 0.5  # [N_I, num_latents]
+
+    first_true_indices = torch.argmax(mask.to(torch.int32), dim=0)  # [num_latents]
+
+    result = sorted_rates[first_true_indices]  # [num_latents]
+
+    result = (result / result.sum()).squeeze()
+    return result
+
+
+@jaxtyped(typechecker=typechecked)
+def circular_smooth_huber(
+    argmax_stimuli: Float[torch.Tensor, "N_I"],
+    max_rates: Float[torch.Tensor, "N_I"],
+    stimulus_space: Float[torch.Tensor, "num_latents"],
+    bw: float = 0.25,
+    delta: float = 1.0,  # Huber threshold parameter
+) -> Float[torch.Tensor, "num_latents"]:
+    diff = torch.abs(
+        stimulus_space.unsqueeze(0) - argmax_stimuli.unsqueeze(1)
+    )  # [N_I, num_latents]
+    diff = torch.minimum(diff, 2 * torch.pi - diff)  # [N_I, num_latents]
+    gaussians = torch.exp(-0.5 * (diff / bw) ** 2) / (
+        bw * np.sqrt(2 * torch.pi)
+    )  # [N_I, num_latents]
+    weights = gaussians / gaussians.sum(dim=0)  # [N_I, num_latents]
+
+    # For each stimulus point, compute weighted center (similar to weighted mean)
+    weighted_center = torch.sum(
+        max_rates.unsqueeze(1) * weights, dim=0
+    )  # [num_latents]
+
+    # Compute absolute deviations from the weighted center
+    abs_deviations = torch.abs(
+        max_rates.unsqueeze(1) - weighted_center.unsqueeze(0)
+    )  # [N_I, num_latents]
+
+    # Apply Huber function to deviations
+    huber_weights = torch.zeros_like(abs_deviations)
+
+    # For small deviations, use squared error (behaves like mean)
+    small_deviation_mask = abs_deviations <= delta
+    huber_weights[small_deviation_mask] = weights[small_deviation_mask]
+
+    # For large deviations, use absolute error (behaves like median)
+    large_deviation_mask = abs_deviations > delta
+    huber_weights[large_deviation_mask] = weights[large_deviation_mask] * (
+        delta / abs_deviations[large_deviation_mask]
+    )
+
+    # Normalize Huber weights
+    huber_weights = huber_weights / huber_weights.sum(dim=0)
+
+    # Compute final estimate using Huber weights
+    result = torch.sum(max_rates.unsqueeze(1) * huber_weights, dim=0)  # [num_latents]
+
+    # Normalize the result
+    result = (result / result.sum()).squeeze()
+    return result
+
+
+@jaxtyped(typechecker=typechecked)
 def circular_smooth_values(
     argmax_stimuli: Float[torch.Tensor, "N_I"],
     max_rates: Float[torch.Tensor, "N_I"],
