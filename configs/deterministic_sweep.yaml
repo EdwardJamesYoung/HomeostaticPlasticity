@@ -16,7 +16,7 @@ base_params:
   tau_W: 2000.0
   tau_k: 2000.0
   zeta: 10.0
-  T: 2500000.0 
+  T: 5000000.0 
   k_I: 20.0
   rate_homeostasis: True
   dynamics_log_time: 1000.0
