@@ -6,7 +6,7 @@ base_params:
   N_E: 100
   N_I: 100
   wandb_logging: True
-  random_seed: 42
+  random_seed: 10
   covariance_learning: False
   activation_function_name: "rectified_quadratic"
   initial_feedforward_weight_scaling: 0.1
