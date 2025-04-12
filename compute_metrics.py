@@ -86,12 +86,12 @@ def compute_population_response_metrics(
     N_I = parameters.N_I
 
     stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
-    activated_stimuli_probabilities = parameters.activation_function(
-        stimuli_probabilities
-    )  # [num_latents]
+    squared_stimuli_probabilities = (
+        stimuli_probabilities**2
+    )  # [num_latents] (squared probabilities of each stimulus)
     # Normalise this to sum to 1
-    activated_stimuli_probabilities = (
-        activated_stimuli_probabilities / activated_stimuli_probabilities.sum()
+    squared_stimuli_probabilities = (
+        squared_stimuli_probabilities / squared_stimuli_probabilities.sum()
     )  # [num_latents]
 
     stimuli_patterns = input_generator.stimuli_patterns  # [N_E, num_latents]
@@ -207,7 +207,7 @@ def compute_population_response_metrics(
         "pattern_overlaps": pattern_overlaps.detach().cpu().numpy(),
         "generalised_density": generalised_density.detach().cpu().numpy(),
         "generalised_gain": generalised_gain.detach().cpu().numpy(),
-        "activated_stimuli_probabilities": activated_stimuli_probabilities.detach()
+        "squared_stimuli_probabilities": squared_stimuli_probabilities.detach()
         .cpu()
         .numpy(),
     }
@@ -226,8 +226,8 @@ def compute_discrepancies(
     preferred_stimulus_density = population_response_metrics[
         "preferred_stimulus_density"
     ]  # [num_latents]
-    activated_stimuli_probabilities = population_response_metrics[
-        "activated_stimuli_probabilities"
+    squared_stimuli_probabilities = population_response_metrics[
+        "squared_stimuli_probabilities"
     ]  # [num_latents]
     stimuli_probabilities = population_response_metrics[
         "stimuli_probabilities"
@@ -274,20 +274,27 @@ def compute_discrepancies(
     curves = {
         "r": normalised_total_rate,
         "p": stimuli_probabilities,
-        "F(p)": activated_stimuli_probabilities,
+        "p^2": squared_stimuli_probabilities,
         "d": preferred_stimulus_density,
         "c": constant_curve,
     }
 
     # Compute the discrepancies between the curves
     discrepancies = {}
-    for curve_1_name, curve_1 in curves.items():
-        for curve_2_name, curve_2 in curves.items():
-            if curve_1_name != curve_2_name:
-                # Compute the circular discrepancy between the two curves
-                discrepancy = circular_discrepancy(curve_1, curve_2)
-                # Store the discrepancy in the dictionary
-                discrepancies[f"diff/diff({curve_1_name},{curve_2_name})"] = discrepancy
+    curve_names = list(curves.keys())
+
+    # Loop through unique pairs
+    for i, curve_1_name in enumerate(curve_names):
+        curve_1 = curves[curve_1_name]
+        # Start from i+1 to avoid duplicates
+        for j in range(i + 1, len(curve_names)):
+            curve_2_name = curve_names[j]
+            curve_2 = curves[curve_2_name]
+
+            # Compute the circular discrepancy between the two curves
+            discrepancy = circular_discrepancy(curve_1, curve_2)
+            # Store the discrepancy in the dictionary
+            discrepancies[f"diff/diff({curve_1_name},{curve_2_name})"] = discrepancy
 
     return discrepancies
 

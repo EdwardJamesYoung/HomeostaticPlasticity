@@ -165,6 +165,18 @@ def visualise_tuning_curves(
         label="(Normalised) smoothed max response curve",
     )
 
+    # Compute the inverse gains
+    inverse_gains = 1 / smoothed_max_rates
+    # Normalise
+    inverse_gains = inverse_gains / inverse_gains.sum()
+
+    axs[0].plot(
+        stimulus_space,
+        inverse_gains,
+        color="cyan",
+        label="(Normalised) inverse gain",
+    )
+
     axs[0].plot(
         stimulus_space,
         preferred_stimulus_density,

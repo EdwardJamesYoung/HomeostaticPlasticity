@@ -1,10 +1,10 @@
-group_name: "deterministic_sweep"
+group_name: "allocation_testing"
 
 base_params:
   target_rate: 1.0
   num_latents: 200
   N_E: 100
-  N_I: 50
+  N_I: 100
   wandb_logging: True
   random_seed: 42
   covariance_learning: False
@@ -17,14 +17,13 @@ base_params:
   tau_k: 2000.0
   zeta: 10.0
   T: 5000000.0 
-  k_I: 20.0
   rate_homeostasis: True
   dynamics_log_time: 1000.0
   mode_log_time: 1000.0
 
 param_grid:
+  k_I: [5.0, 10.0, 25.0]
   variable_input_mass: [True, False]
-  activation_function_name: ["rectified_linear", "rectified_powerlaw_1p5", "rectified_quadratic"]
 
   input_config:
     - type: "circular" 
