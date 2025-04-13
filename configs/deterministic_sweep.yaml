@@ -10,7 +10,7 @@ base_params:
   covariance_learning: False
   activation_function_name: "rectified_quadratic"
   initial_feedforward_weight_scaling: 0.1
-  dt: 0.1
+  dt: 0.01
   tau_u: 50.0
   tau_M: 1000.0
   tau_W: 2000.0
@@ -22,7 +22,7 @@ base_params:
   mode_log_time: 1000.0
 
 param_grid:
-  k_I: [5.0, 10.0, 25.0]
+  k_I: 20.0 # [5.0, 10.0, 25.0]
   variable_input_mass: [True, False]
 
   input_config:

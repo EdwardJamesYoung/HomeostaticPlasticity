@@ -24,8 +24,8 @@ def compute_firing_rates(
     u: Float[torch.Tensor, "N_E num_stimuli"],
     parameters: SimulationParameters,
     v_init: Optional[Float[torch.Tensor, "N_I num_stimuli"]] = None,
-    threshold=1e-8,
-    max_iter=1000000,
+    threshold=1e-6,
+    max_iter=100000,
 ) -> tuple[
     Float[torch.Tensor, "N_I num_stimuli"], Float[torch.Tensor, "N_I num_stimuli"]
 ]:
@@ -42,7 +42,7 @@ def compute_firing_rates(
         torch.Tensor: The firing rates of the network.
     """
     # Unpack from parameters
-    dt = 0.25 * parameters.dt
+    dt = parameters.dt
     tau_v = parameters.tau_v
     activation_function = parameters.activation_function
 
