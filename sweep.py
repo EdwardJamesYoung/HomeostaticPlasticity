@@ -16,6 +16,7 @@ from input_generation import (
     OULaplacianGenerator,
     PiecewiseConstantLaplacianGenerator,
     CircularGenerator,
+    ModulatedCircularGenerator,
     generate_conditions,
 )
 from activation_functions import (
@@ -33,6 +34,7 @@ INPUT_GENERATOR_MAP = {
     "const_gaussian": PiecewiseConstantGaussianGenerator,
     "const_laplacian": PiecewiseConstantLaplacianGenerator,
     "circular": CircularGenerator,
+    "modulated_circular": ModulatedCircularGenerator,
 }
 
 ACTIVATION_FUNCTION_MAP = {
@@ -130,7 +132,7 @@ def create_input_generator(
             input_eigenbasis=input_eigenbasis,
             input_eigenspectrum=input_eigenspectrum,
         )
-    elif generator_type == "circular":
+    elif generator_type == "circular" or generator_type == "modulated_circular":
         return generator_class(parameters=parameters, **generator_params)
     else:
         raise ValueError(f"Unknown input generator type: {generator_type}")

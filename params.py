@@ -43,6 +43,8 @@ class SimulationParameters:
     num_samples: int = 10000
     wandb_logging: bool = False
     random_seed: int = 0
+    rate_computation_threshold: float = 1e-4
+    rate_computation_iterations: int = 10000
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype: torch.dtype = torch.float64
 

@@ -5,7 +5,12 @@ import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 
-from input_generation import InputGenerator, DiscreteGenerator, CircularGenerator
+from input_generation import (
+    InputGenerator,
+    DiscreteGenerator,
+    CircularGenerator,
+    ModulatedCircularGenerator,
+)
 from params import SimulationParameters
 from utils import (
     circular_discrepancy,
@@ -24,8 +29,6 @@ def compute_firing_rates(
     u: Float[torch.Tensor, "N_E num_stimuli"],
     parameters: SimulationParameters,
     v_init: Optional[Float[torch.Tensor, "N_I num_stimuli"]] = None,
-    threshold=1e-6,
-    max_iter=100000,
 ) -> tuple[
     Float[torch.Tensor, "N_I num_stimuli"], Float[torch.Tensor, "N_I num_stimuli"]
 ]:
@@ -45,6 +48,8 @@ def compute_firing_rates(
     dt = parameters.dt
     tau_v = parameters.tau_v
     activation_function = parameters.activation_function
+    threshold = parameters.rate_computation_threshold
+    max_iter = parameters.rate_computation_iterations
 
     # Initialise the input h and the voltage v
     h = W @ u
@@ -76,7 +81,7 @@ def compute_firing_rates(
 def compute_population_response_metrics(
     W: Float[torch.Tensor, "N_I N_E"],
     M: Float[torch.Tensor, "N_I N_I"],
-    input_generator: CircularGenerator,
+    input_generator: ModulatedCircularGenerator,
     parameters: SimulationParameters,
 ) -> dict[str, Any]:
     r"""For consistency, everything here is going to be in torch. Then we'll convert when we return."""
@@ -94,6 +99,19 @@ def compute_population_response_metrics(
         squared_stimuli_probabilities / squared_stimuli_probabilities.sum()
     )  # [num_latents]
 
+    stimuli_modulation_curve = input_generator.modulation_curve  # [num_latents]
+    squared_stimuli_modulation = (
+        stimuli_modulation_curve**2
+    )  # [num_latents] (squared modulation of each stimulus)
+
+    # Renormalise both of these curves to sum to 1
+    stimuli_modulation_curve = (
+        stimuli_modulation_curve / stimuli_modulation_curve.sum()
+    )  # [num_latents]
+    squared_stimuli_modulation = (
+        squared_stimuli_modulation / squared_stimuli_modulation.sum()
+    )  # [num_latents]
+
     stimuli_patterns = input_generator.stimuli_patterns  # [N_E, num_latents]
     average_input_activation = stimuli_patterns @ stimuli_probabilities.to(
         dtype=stimuli_patterns.dtype
@@ -108,7 +126,6 @@ def compute_population_response_metrics(
         M,
         stimuli_patterns,
         parameters=parameters,
-        threshold=1e-8,
     )  # [N_I, num_latents]
     average_rates = rates @ stimuli_probabilities  # [N_I] (average rate of each neuron)
 
@@ -210,6 +227,8 @@ def compute_population_response_metrics(
         "squared_stimuli_probabilities": squared_stimuli_probabilities.detach()
         .cpu()
         .numpy(),
+        "stimuli_modulation_curve": stimuli_modulation_curve.detach().cpu().numpy(),
+        "squared_stimuli_modulation": squared_stimuli_modulation.detach().cpu().numpy(),
     }
 
     return population_response_metrics
@@ -231,6 +250,12 @@ def compute_discrepancies(
     ]  # [num_latents]
     stimuli_probabilities = population_response_metrics[
         "stimuli_probabilities"
+    ]  # [num_latents]
+    stimuli_modulation = population_response_metrics[
+        "stimuli_modulation_curve"
+    ]  # [num_latents]
+    squared_stimuli_modulation = population_response_metrics[
+        "squared_stimuli_modulation"
     ]  # [num_latents]
     constant_curve = np.ones_like(normalised_total_rate) / len(
         normalised_total_rate
@@ -275,6 +300,8 @@ def compute_discrepancies(
         "r": normalised_total_rate,
         "p": stimuli_probabilities,
         "p^2": squared_stimuli_probabilities,
+        "m": stimuli_modulation,
+        "m^2": squared_stimuli_modulation,
         "d": preferred_stimulus_density,
         "c": constant_curve,
     }

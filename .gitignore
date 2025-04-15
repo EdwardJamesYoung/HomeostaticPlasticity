@@ -3,3 +3,4 @@ __pycache__/
 *.ipynb
 numpy_code.py
 archive/
+local/

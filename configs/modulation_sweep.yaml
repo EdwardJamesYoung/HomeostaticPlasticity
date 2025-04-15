@@ -1,4 +1,4 @@
-group_name: "allocation_testing"
+group_name: "modulation_experiment"
 
 base_params:
   target_rate: 1.0
@@ -9,7 +9,7 @@ base_params:
   random_seed: 10
   covariance_learning: False
   activation_function_name: "rectified_quadratic"
-  initial_feedforward_weight_scaling: 0.1
+  initial_feedforward_weight_scaling: 1.0
   dt: 0.01
   tau_u: 50.0
   tau_M: 1000.0
@@ -20,14 +20,19 @@ base_params:
   rate_homeostasis: True
   dynamics_log_time: 1000.0
   mode_log_time: 1000.0
+  rate_computation_threshold: 0.0001
+  rate_computation_iterations: 10000
+  k_I: 20.0
 
 param_grid:
-  k_I: [5.0, 10.0, 25.0]
   variable_input_mass: [True, False]
 
   input_config:
-    - type: "circular" 
+    - type: "modulated_circular" 
       param_grid:  
-        mixing_parameter: [0.1, 0.25, 0.5]
+        mixing_parameter: [0.0]
         vm_concentration: [1.0]
         tuning_width: [0.25] 
+        modulation_mixing_parameter: [0.1, 0.25, 0.5]
+        modulation_vm_concentration: [1.0]
+

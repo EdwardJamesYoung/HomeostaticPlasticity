@@ -203,11 +203,12 @@ class LaplacianDistributionGenerator(EigenbasisInputGenerator):
         white_noise = torch.randn(
             (self.num_latents, num_stimuli), device=self.device, dtype=self.dtype
         )
-        mode_stimuli_contributions = gaussian_to_laplace(white_noise)
+        mode_stimuli_contributions = self.gaussian_to_laplace(white_noise)
         stimuli = self.input_eigenbasis @ mode_stimuli_contributions
         return stimuli, mode_stimuli_contributions
 
     def gaussian_to_laplace(
+        self,
         z: Float[torch.Tensor, "{self.num_latents} num_stimuli"],
     ) -> Float[torch.Tensor, "{self.num_latents} num_stimuli"]:
         uniforms = 0.5 * (1 + torch.erf(z / torch.sqrt(torch.tensor(2.0))))
@@ -307,7 +308,7 @@ class OULaplacianGenerator(LaplacianDistributionGenerator, OUProcessGenerator):
     def latents_to_input(
         self, latents: Float[torch.Tensor, "{self.num_latents} 1"]
     ) -> Float[torch.Tensor, "{self.N_E} 1"]:
-        x = gaussian_to_laplace(latents)
+        x = self.gaussian_to_laplace(latents)
 
         return self.input_eigenbasis @ x
 
@@ -499,6 +500,71 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
     @jaxtyped(typechecker=typechecked)
     def attunement_entropy(self, W: Float[torch.Tensor, "N_I {self.N_E}"]) -> float:
         return 0.0
+
+
+class ModulatedCircularGenerator(CircularGenerator):
+    def __init__(
+        self,
+        parameters: SimulationParameters,
+        mixing_parameter: float,
+        vm_concentration: float,
+        tuning_width: float,
+        modulation_mixing_parameter: float,
+        modulation_vm_concentration: float,
+    ):
+        self.modulation_mixing_parameter = modulation_mixing_parameter
+        self.modulation_vm_concentration = modulation_vm_concentration
+        super().__init__(
+            parameters=parameters,
+            mixing_parameter=mixing_parameter,
+            vm_concentration=vm_concentration,
+            tuning_width=tuning_width,
+        )
+
+    @jaxtyped(typechecker=typechecked)
+    def _compute_stimuli_patterns(
+        self,
+    ) -> Float[torch.Tensor, "{self.N_E} {self.num_latents}"]:
+        """
+        Compute all possible stimulus patterns.
+
+        Returns:
+
+        """
+        # Calculate circular distances between all stimulus positions and neuron positions
+        circ_distances = torch.abs(
+            self.stimuli_positions.T - self.neuron_positions
+        )  # [N_E, num_latents]
+        min_distances = torch.minimum(
+            circ_distances, 2 * torch.pi - circ_distances
+        )  # [N_E, num_latents]
+
+        # Create base tuning curve responses
+        stimuli_patterns = torch.exp(
+            -(min_distances**2) / (2 * self.tuning_width**2)
+        ).to(
+            device=self.device, dtype=self.dtype
+        )  # [N_E, num_latents]
+
+        # Calculate modulation factor for each stimulus position
+        modulation_curve = self.modulation_mixing_parameter * torch.exp(
+            torch.distributions.VonMises(
+                loc=torch.zeros(1, device=self.device),
+                concentration=self.modulation_vm_concentration,
+            ).log_prob(self.stimuli_positions)
+        ) + (1 - self.modulation_mixing_parameter) / (
+            2 * torch.pi
+        )  # [num_latents, 1]
+
+        # Normalize modulation curve for consistent scaling
+        modulation_curve = modulation_curve / modulation_curve.mean()
+
+        # Apply modulation to tuning curves (shape adjustment for broadcasting)
+        stimuli_patterns = stimuli_patterns * modulation_curve.T  # [num_latents, N_E]
+
+        self.modulation_curve = modulation_curve.squeeze()  # [num_latents]
+
+        return stimuli_patterns
 
 
 def generate_conditions(
