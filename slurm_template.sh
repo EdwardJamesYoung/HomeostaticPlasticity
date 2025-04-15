@@ -42,9 +42,10 @@
 #! ############################################################
 #!
 #! Number of nodes and tasks per node allocated by SLURM:
-numnodes=$SLURM_JOB_NUM_NODES
-numtasks=$SLURM_NTASKS
-mpi_tasks_per_node=$(echo "$SLURM_TASKS_PER_NODE" | sed -e  's/^\([0-9][0-9]*\).*$/\1/')
+numnodes=${SLURM_JOB_NUM_NODES:-1}  # Default to 1 if not set
+numtasks=${SLURM_NTASKS:-1}  # Default to 1 if not set
+mpi_tasks_per_node=${SLURM_TASKS_PER_NODE:-1}  # Default to 1 if not set
+mpi_tasks_per_node=$(echo "$mpi_tasks_per_node" | sed -e 's/^\([0-9][0-9]*\).*$/\1/')
 #!
 #! ############################################################
 #!
@@ -63,14 +64,23 @@ workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the
 #! Are you using OpenMP? If so increase this:
 export OMP_NUM_THREADS=1
 #!
-#! Number of MPI tasks:
-np=$[${numnodes}*${mpi_tasks_per_node}]
+#! Number of MPI tasks (safely handle empty variables):
+np=$(( ${numnodes:-1} * ${mpi_tasks_per_node:-1} ))
 #!
-CONFIG_NAME="__CONFIG_PREFIX__${SLURM_ARRAY_TASK_ID}.yaml"
-PATH_TO_CONFIG="__CONFIG_PATH__/${CONFIG_NAME}"
-#!
-#! Command to run:
-CMD="python sweep.py -c $PATH_TO_CONFIG"
+# Make sure SLURM_ARRAY_TASK_ID is set, default to 1 if running outside array
+TASK_ID=${SLURM_ARRAY_TASK_ID:-1}
+CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
+PATH_TO_CONFIG="./${CONFIG_NAME}"
+
+# Check if sweep.py exists in current directory, otherwise specify full path
+if [ -f "./sweep.py" ]; then
+    CMD="python ./sweep.py -c $PATH_TO_CONFIG"
+else
+    # Specify the full path to your sweep.py script
+    # Replace with actual path if needed
+    SWEEP_PATH="$HOME/HomeostaticPlasticity/sweep.py"
+    CMD="python $SWEEP_PATH -c $PATH_TO_CONFIG"
+fi
 #!
 ###############################################################
 ### You should not have to change anything below this line ####
@@ -85,6 +95,7 @@ echo -e "JobID: $JOBID\n======"
 echo "Time: `date`"
 echo "Running on master node: `hostname`"
 echo "Current directory: `pwd`"
+echo "Config file: $PATH_TO_CONFIG"
 #!
 if [ "$SLURM_JOB_NODELIST" ]; then
         #! Create a machine file:

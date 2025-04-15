@@ -341,7 +341,7 @@ module load rhel8/default-amp              # REQUIRED - loads the basic environm
 module load miniconda/3                    # python/3.10 cuda/11.7
 source ~/.bashrc  # Required for conda things
 conda deactivate
-conda activate comp_neuro
+conda activate RL
 #!
 #! Work directory:
 workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory in which sbatch is run.
