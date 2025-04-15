@@ -63,12 +63,12 @@ def compute_firing_rates(
         r = r_new
         counter += 1
 
-    if counter == max_iter:
-        wandb.alert(
-            title="Firing rate computation did not converge",
-            text="The firing rate computation did not converge within the maximum number of iterations",
-            level=wandb.AlertLevel.WARN,
-        )
+    # if counter == max_iter:
+    #     wandb.alert(
+    #         title="Firing rate computation did not converge",
+    #         text="The firing rate computation did not converge within the maximum number of iterations",
+    #         level=wandb.AlertLevel.WARN,
+    #     )
 
     return r, v
 
