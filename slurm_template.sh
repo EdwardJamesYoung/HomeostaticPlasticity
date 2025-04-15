@@ -50,6 +50,7 @@ mpi_tasks_per_node=$(echo "$mpi_tasks_per_node" | sed -e 's/^\([0-9][0-9]*\).*$/
 #! ############################################################
 #!
 #! Optionally modify the environment seen by the application
+#! Optionally modify the environment seen by the application
 . /etc/profile.d/modules.sh                # Leave this line (enables the module command)
 module purge                               # Removes all modules still loaded
 module load rhel8/default-amp              # REQUIRED - loads the basic environment
@@ -70,10 +71,27 @@ np=$(( ${numnodes:-1} * ${mpi_tasks_per_node:-1} ))
 # Make sure SLURM_ARRAY_TASK_ID is set, default to 1 if running outside array
 TASK_ID=${SLURM_ARRAY_TASK_ID:-1}
 CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
-PATH_TO_CONFIG="__CONFIG_PATH__/${CONFIG_NAME}"
 
-# Check if sweep.py exists in current directory, otherwise specify full path
-CMD="python $SWEEP_PATH -c $PATH_TO_CONFIG"
+# Set the path to the config file - this will be in the same directory as this script
+CONFIG_DIR="$(dirname "$0")"
+PATH_TO_CONFIG="${CONFIG_DIR}/${CONFIG_NAME}"
+
+# Check if sweep.py exists in the main HomeostaticPlasticity directory
+if [ -f "$SLURM_SUBMIT_DIR/sweep.py" ]; then
+    CMD="python $SLURM_SUBMIT_DIR/sweep.py -c $PATH_TO_CONFIG"
+else
+    # If not found in current directory, try the default location
+    echo "Warning: sweep.py not found in $SLURM_SUBMIT_DIR"
+    echo "Looking for alternative locations..."
+    
+    # Try to find sweep.py in common locations
+    if [ -f "./sweep.py" ]; then
+        CMD="python ./sweep.py -c $PATH_TO_CONFIG"
+    else
+        echo "Error: Could not find sweep.py"
+        exit 1
+    fi
+fi
 #!
 ###############################################################
 ### You should not have to change anything below this line ####

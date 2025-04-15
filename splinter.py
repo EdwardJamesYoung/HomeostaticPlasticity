@@ -1,6 +1,7 @@
 import argparse
 import yaml
 import os
+import sys
 from itertools import product
 import copy
 
@@ -206,6 +207,56 @@ def generate_configs(config, output_dir):
     return num_configs
 
 
+def generate_slurm_script(group_name, output_dir, num_configs):
+    """
+    Generates a SLURM batch script for running all the created configurations.
+
+    Args:
+        group_name (str): The group name from the configuration
+        output_dir (str): Directory where configs were saved and where to save the SLURM script
+        num_configs (int): Number of configurations generated
+
+    Returns:
+        str: The name of the generated script file
+    """
+    # Get the template file path - it should be in the same directory as this script
+    template_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "slurm_template.sh"
+    )
+
+    # Check if the template exists
+    if not os.path.exists(template_path):
+        print(f"ERROR: SLURM template file not found at '{template_path}'")
+        print("Please create this file using the provided slurm_template.sh")
+        print("and place it in the same directory as splinter.py")
+        sys.exit(1)
+
+    # Read the template
+    with open(template_path, "r") as f:
+        template_content = f.read()
+
+    # Replace placeholders in the template
+    script_content = template_content.replace("__JOB_NAME__", group_name)
+    script_content = script_content.replace("__ARRAY_RANGE__", f"1-{num_configs}")
+    script_content = script_content.replace(
+        "__CONFIG_PREFIX__", f"{group_name}_config_"
+    )
+
+    # Create capitalized filename based on experiment name
+    script_name = f"{group_name.upper()}_RUN_JOBS.sh"
+    script_path = os.path.join(output_dir, script_name)
+
+    # Write the SLURM script to the output directory
+    with open(script_path, "w") as f:
+        f.write(script_content)
+
+    # Make the script executable
+    os.chmod(script_path, 0o755)  # rwxr-xr-x
+
+    # Return the script name
+    return script_name
+
+
 def main():
     args = parse_args()
 
@@ -226,176 +277,6 @@ def main():
 
     print(f"Split configurations saved to {args.output}")
     print(f"SLURM batch script saved to {args.output}/{script_name}")
-
-
-def generate_slurm_script(group_name, output_dir, num_configs):
-    """
-    Generates a SLURM batch script for running all the created configurations.
-
-    Args:
-        group_name (str): The group name from the configuration
-        output_dir (str): Directory where configs were saved and where to save the SLURM script
-        num_configs (int): Number of configurations generated
-
-    Returns:
-        str: The name of the generated script file
-    """
-    # Get the template file path - it should be in the same directory as this script
-    template_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "slurm_template.sh"
-    )
-
-    # If the template doesn't exist, create a default one
-    if not os.path.exists(template_path):
-        create_default_slurm_template(template_path)
-
-    # Read the template
-    with open(template_path, "r") as f:
-        template_content = f.read()
-
-    # Replace placeholders in the template
-    script_content = template_content.replace("__JOB_NAME__", group_name)
-    script_content = script_content.replace("__ARRAY_RANGE__", f"1-{num_configs}")
-    script_content = script_content.replace(
-        "__CONFIG_PREFIX__", f"{group_name}_config_"
-    )
-
-    # Use a relative path instead of absolute path
-    # Since the SLURM script will be in the same directory as the config files,
-    # we can just use the current directory
-    script_content = script_content.replace("__CONFIG_PATH__", ".")
-
-    # Create capitalized filename based on experiment name
-    script_name = f"{group_name.upper()}_RUN_JOBS.sh"
-    script_path = os.path.join(output_dir, script_name)
-
-    # Write the SLURM script to the output directory
-    with open(script_path, "w") as f:
-        f.write(script_content)
-
-    # Make the script executable
-    os.chmod(script_path, 0o755)  # rwxr-xr-x
-
-    # Return the script name
-    return script_name
-
-
-def create_default_slurm_template(template_path):
-    """
-    Creates a default SLURM template if one doesn't exist.
-    """
-    default_template = """#!/bin/bash
-#!
-#! SLURM job script for Ampere GPU Nodes
-#!
-#!#############################################################
-#!#### Modify the options in this section as appropriate ######
-#!#############################################################
-#!
-#! sbatch directives begin here ###############################
-#! Name of the job:
-#SBATCH --job-name=__JOB_NAME__
-#!
-#! Which project should be charged:
-#SBATCH --account=TERHANI-SL3-GPU
-#!
-#! Which partition should be used:
-#SBATCH --partition ampere
-#!
-#! How many whole nodes should be allocated?
-#SBATCH --nodes=1 
-#! How many GPUs should be allocated per node? 
-#SBATCH --gres=gpu:1
-#!
-#! How many (MPI) tasks will there be in total?
-#SBATCH --ntasks=1
-#! How many tasks per node:
-#SBATCH --ntasks-per-node=1
-#!
-#! How much wallclock time will be required? (format: hh:mm:ss)
-#SBATCH --time=3:00:00 
-#!
-#! What types of email messages do you wish to receive?
-#SBATCH --mail-type=END,FAIL 
-#!
-#! Create an array of jobs (e.g. for parameter sweeps):
-#SBATCH --array=__ARRAY_RANGE__
-#!
-#! Uncomment this to prevent the job from being requeued:
-#SBATCH --no-requeue
-#!
-#! sbatch directives end here
-#! ############################################################
-#!
-#! Number of nodes and tasks per node allocated by SLURM:
-numnodes=$SLURM_JOB_NUM_NODES
-numtasks=$SLURM_NTASKS
-mpi_tasks_per_node=$(echo "$SLURM_TASKS_PER_NODE" | sed -e  's/^\\([0-9][0-9]*\\).*$/\\1/')
-#!
-#! ############################################################
-#!
-#! Optionally modify the environment seen by the application
-. /etc/profile.d/modules.sh                # Leave this line (enables the module command)
-module purge                               # Removes all modules still loaded
-module load rhel8/default-amp              # REQUIRED - loads the basic environment
-module load miniconda/3                    # python/3.10 cuda/11.7
-source ~/.bashrc  # Required for conda things
-conda deactivate
-conda activate RL
-#!
-#! Work directory:
-workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory in which sbatch is run.
-#!
-#! Are you using OpenMP? If so increase this:
-export OMP_NUM_THREADS=1
-#!
-#! Number of MPI tasks:
-np=$[${numnodes}*${mpi_tasks_per_node}]
-#!
-CONFIG_NAME="__CONFIG_PREFIX__${SLURM_ARRAY_TASK_ID}.yaml"
-PATH_TO_CONFIG="__CONFIG_PATH__/${CONFIG_NAME}"
-#!
-#! Command to run:
-CMD="python sweep.py -c $PATH_TO_CONFIG"
-#!
-###############################################################
-### You should not have to change anything below this line ####
-###############################################################
-#!
-cd $workdir
-echo -e "Changed directory to `pwd`.\\n"
-#!
-JOBID=$SLURM_JOB_ID
-#!
-echo -e "JobID: $JOBID\\n======"
-echo "Time: `date`"
-echo "Running on master node: `hostname`"
-echo "Current directory: `pwd`"
-#!
-if [ "$SLURM_JOB_NODELIST" ]; then
-        #! Create a machine file:
-        export NODEFILE=`generate_pbs_nodefile`
-        cat $NODEFILE | uniq > machine.file.$JOBID
-        echo -e "\\nNodes allocated:\\n================"
-        echo `cat machine.file.$JOBID | sed -e 's/\\..*$//g'`
-fi
-#!
-echo -e "\\nnumtasks=$numtasks, numnodes=$numnodes, mpi_tasks_per_node=$mpi_tasks_per_node (OMP_NUM_THREADS=$OMP_NUM_THREADS)"
-#!
-echo -e "\\nExecuting command:\\n==================\\n$CMD\\n"
-#!
-eval $CMD  # This tells shell to run the command CMD
-"""
-
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(template_path), exist_ok=True)
-
-    # Write the default template
-    with open(template_path, "w") as f:
-        f.write(default_template)
-
-    # Make the template executable
-    os.chmod(template_path, 0o644)  # rw-r--r--
 
 
 if __name__ == "__main__":
