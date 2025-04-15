@@ -76,22 +76,7 @@ CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
 CONFIG_DIR="$(dirname "$0")"
 PATH_TO_CONFIG="${CONFIG_DIR}/${CONFIG_NAME}"
 
-# Check if sweep.py exists in the main HomeostaticPlasticity directory
-if [ -f "$SLURM_SUBMIT_DIR/sweep.py" ]; then
-    CMD="python $SLURM_SUBMIT_DIR/sweep.py -c $PATH_TO_CONFIG"
-else
-    # If not found in current directory, try the default location
-    echo "Warning: sweep.py not found in $SLURM_SUBMIT_DIR"
-    echo "Looking for alternative locations..."
-    
-    # Try to find sweep.py in common locations
-    if [ -f "./sweep.py" ]; then
-        CMD="python ./sweep.py -c $PATH_TO_CONFIG"
-    else
-        echo "Error: Could not find sweep.py"
-        exit 1
-    fi
-fi
+CMD="python sweep.py -c $PATH_TO_CONFIG"
 #!
 ###############################################################
 ### You should not have to change anything below this line ####
