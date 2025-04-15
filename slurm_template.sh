@@ -70,17 +70,10 @@ np=$(( ${numnodes:-1} * ${mpi_tasks_per_node:-1} ))
 # Make sure SLURM_ARRAY_TASK_ID is set, default to 1 if running outside array
 TASK_ID=${SLURM_ARRAY_TASK_ID:-1}
 CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
-PATH_TO_CONFIG="./${CONFIG_NAME}"
+PATH_TO_CONFIG="__CONFIG_PATH__/${CONFIG_NAME}"
 
 # Check if sweep.py exists in current directory, otherwise specify full path
-if [ -f "./sweep.py" ]; then
-    CMD="python ./sweep.py -c $PATH_TO_CONFIG"
-else
-    # Specify the full path to your sweep.py script
-    # Replace with actual path if needed
-    SWEEP_PATH="$HOME/HomeostaticPlasticity/sweep.py"
-    CMD="python $SWEEP_PATH -c $PATH_TO_CONFIG"
-fi
+CMD="python $SWEEP_PATH -c $PATH_TO_CONFIG"
 #!
 ###############################################################
 ### You should not have to change anything below this line ####
