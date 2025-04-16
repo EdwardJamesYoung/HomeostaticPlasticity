@@ -238,6 +238,7 @@ def generate_slurm_script(group_name, output_dir, num_configs):
     # Replace placeholders in the template
     script_content = template_content.replace("__JOB_NAME__", group_name)
     script_content = script_content.replace("__ARRAY_RANGE__", f"1-{num_configs}")
+    script_content = script_content.replace("__CONFIG_DIR__", output_dir)
     script_content = script_content.replace(
         "__CONFIG_PREFIX__", f"{group_name}_config_"
     )

@@ -73,7 +73,7 @@ TASK_ID=${SLURM_ARRAY_TASK_ID:-1}
 CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
 
 # Set the path to the config file - this will be in the same directory as this script
-CONFIG_DIR="$(dirname "$0")"
+CONFIG_DIR="__CONFIG_DIR__"
 PATH_TO_CONFIG="${CONFIG_DIR}/${CONFIG_NAME}"
 
 CMD="python sweep.py -c $PATH_TO_CONFIG"
