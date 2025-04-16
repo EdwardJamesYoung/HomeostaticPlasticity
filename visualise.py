@@ -62,7 +62,7 @@ def visualise_tuning_curves(
     rates = population_response_metrics["rates"]
     argmax_stimuli = population_response_metrics["argmax_stimuli"]
     normalised_max_rates = population_response_metrics["normalised_max_rates"]
-    smoothed_max_rates = population_response_metrics["smoothed_max_rates"]
+    smoothed_max_rates = population_response_metrics["smoothed_max_rates"]  #
     preferred_stimulus_density = population_response_metrics[
         "preferred_stimulus_density"
     ]
@@ -71,6 +71,7 @@ def visualise_tuning_curves(
     pattern_overlaps = population_response_metrics["pattern_overlaps"]
     generalised_density = population_response_metrics["generalised_density"]  # [N_E]
     generalised_gain = population_response_metrics["generalised_gain"]  # [N_E]
+    inverse_gains = population_response_metrics["inverse_gains"]  # [num_latents]
 
     # Create a two panel figure
     fig, axs = plt.subplots(1, 2, figsize=(14, 7))
@@ -164,11 +165,6 @@ def visualise_tuning_curves(
         zorder=2,
         label="(Normalised) smoothed max response curve",
     )
-
-    # Compute the inverse gains
-    inverse_gains = 1 / smoothed_max_rates
-    # Normalise
-    inverse_gains = inverse_gains / inverse_gains.sum()
 
     axs[0].plot(
         stimulus_space,

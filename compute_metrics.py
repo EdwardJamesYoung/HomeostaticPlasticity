@@ -79,8 +79,7 @@ def compute_firing_rates(
 
 
 def compute_population_response_metrics(
-    W: Float[torch.Tensor, "N_I N_E"],
-    M: Float[torch.Tensor, "N_I N_I"],
+    rates: Float[torch.Tensor, "N_I num_latents"],
     input_generator: ModulatedCircularGenerator,
     parameters: SimulationParameters,
 ) -> dict[str, Any]:
@@ -121,12 +120,6 @@ def compute_population_response_metrics(
         average_input_activation / average_input_activation.sum()
     )  # [N_E]
 
-    rates, _ = compute_firing_rates(
-        W,
-        M,
-        stimuli_patterns,
-        parameters=parameters,
-    )  # [N_I, num_latents]
     average_rates = rates @ stimuli_probabilities  # [N_I] (average rate of each neuron)
 
     # Compute the integral of the tuning curves against the stimuli patterns
@@ -206,6 +199,21 @@ def compute_population_response_metrics(
     density_times_gain = preferred_stimulus_density * smoothed_max_rates
     density_times_gain = density_times_gain / density_times_gain.sum()  # [num_latents]
 
+    # Squared modulation curve times squared stimulus probabilities
+    mmpp = squared_stimuli_modulation * squared_stimuli_probabilities  # [num_latents]
+    mmpp = mmpp / mmpp.sum()  # [num_latents]
+    mmp = squared_stimuli_modulation * stimuli_probabilities  # [num_latents]
+    mmp = mmp / mmp.sum()  # [num_latents]
+    mp = stimuli_modulation_curve * squared_stimuli_probabilities  # [num_latents]
+    mp = mp / mp.sum()  # [num_latents]
+
+    # Compute the inverse gains
+    inverse_gains = 1 / smoothed_max_rates
+    # Normalise
+    inverse_gains = inverse_gains / inverse_gains.sum()
+
+    gains = smoothed_max_rates / smoothed_max_rates.sum()  # [num_latents]
+
     population_response_metrics = {
         "stimuli_probabilities": stimuli_probabilities.detach().cpu().numpy(),
         "stimuli_patterns": stimuli_patterns.detach().cpu().numpy(),
@@ -218,6 +226,7 @@ def compute_population_response_metrics(
         "argmax_stimuli": argmax_stimuli.detach().cpu().numpy(),
         "normalised_total_rate": normalised_total_rate.detach().cpu().numpy(),
         "smoothed_max_rates": smoothed_max_rates.detach().cpu().numpy(),
+        "gains": gains.detach().cpu().numpy(),
         "preferred_stimulus_density": preferred_stimulus_density.detach().cpu().numpy(),
         "density_times_gain": density_times_gain.detach().cpu().numpy(),
         "average_rates": average_rates.detach().cpu().numpy(),
@@ -229,6 +238,10 @@ def compute_population_response_metrics(
         .numpy(),
         "stimuli_modulation_curve": stimuli_modulation_curve.detach().cpu().numpy(),
         "squared_stimuli_modulation": squared_stimuli_modulation.detach().cpu().numpy(),
+        "m^2 p^2": mmpp.detach().cpu().numpy(),
+        "m^2 p": mmp.detach().cpu().numpy(),
+        "m p": mp.detach().cpu().numpy(),
+        "inverse_gains": inverse_gains.detach().cpu().numpy(),
     }
 
     return population_response_metrics
@@ -260,68 +273,44 @@ def compute_discrepancies(
     constant_curve = np.ones_like(normalised_total_rate) / len(
         normalised_total_rate
     )  # [num_latents]
-    # stimulus_space = population_response_metrics["stimulus_space"]  # [num_latents]
+    gains = population_response_metrics["gains"]  # [num_latents]
+    inverse_gains = population_response_metrics["inverse_gains"]  # [num_latents]
+    mmpp = population_response_metrics["m^2 p^2"]  # [num_latents]
+    mmp = population_response_metrics["m^2 p"]  # [num_latents]
+    mp = population_response_metrics["m p"]  # [num_latents]
 
-    # Create interpolated version of average_input_activation
-    # First, create a mapping from N_E input space to the circular stimulus space
-    # N_E = len(average_input_activation)
-    # num_latents = len(stimulus_space)
-
-    # # Interpolate from N_E space to num_latents space using 1D linear interpolation
-    # input_indices = np.linspace(0, 2 * np.pi, N_E, endpoint=False)
-
-    # # Create interpolation function
-    # interpolation_function = interp1d(
-    #     input_indices,
-    #     average_input_activation,
-    #     kind="linear",
-    #     bounds_error=False,
-    #     fill_value=(average_input_activation[-1], average_input_activation[0]),
-    # )
-
-    # # Evaluate at stimulus positions
-    # target_positions = np.linspace(0, 2 * np.pi, num_latents, endpoint=False)
-    # interpolated_average_input_activation = interpolation_function(target_positions)
-
-    # # Normalize
-    # interpolated_average_input_activation = (
-    #     interpolated_average_input_activation
-    #     / interpolated_average_input_activation.sum()
-    # )
-
-    # What are all the quantities of interest that we want to compute the distance matrix for?
-    # 1. The (normalised) total rate
-    # 2. The probabilities
-    # 3. The density
-    # 4. The activated stimulus probabilities
-    # 5. The constant curve
-
-    curves = {
-        "r": normalised_total_rate,
+    stable_curves = {
         "p": stimuli_probabilities,
         "p^2": squared_stimuli_probabilities,
         "m": stimuli_modulation,
         "m^2": squared_stimuli_modulation,
+        "c": constant_curve,
+        "m^2 p^2": mmpp,
+        "m^2 p": mmp,
+        "m p": mp,
+    }
+
+    non_stable_curves = {
+        "r": normalised_total_rate,
         "d": preferred_stimulus_density,
+        "g": gains,
+        "1/g": inverse_gains,
         "c": constant_curve,
     }
 
-    # Compute the discrepancies between the curves
+    # Compute the discrepancies between stable curves and non-stable curves
     discrepancies = {}
-    curve_names = list(curves.keys())
 
-    # Loop through unique pairs
-    for i, curve_1_name in enumerate(curve_names):
-        curve_1 = curves[curve_1_name]
-        # Start from i+1 to avoid duplicates
-        for j in range(i + 1, len(curve_names)):
-            curve_2_name = curve_names[j]
-            curve_2 = curves[curve_2_name]
-
+    # Loop through each stable curve
+    for stable_curve_name, stable_curve in stable_curves.items():
+        # Compare with each non-stable curve
+        for non_stable_curve_name, non_stable_curve in non_stable_curves.items():
             # Compute the circular discrepancy between the two curves
-            discrepancy = circular_discrepancy(curve_1, curve_2)
+            discrepancy = circular_discrepancy(stable_curve, non_stable_curve)
             # Store the discrepancy in the dictionary
-            discrepancies[f"diff/diff({curve_1_name},{curve_2_name})"] = discrepancy
+            discrepancies[f"diff/diff({stable_curve_name},{non_stable_curve_name})"] = (
+                discrepancy
+            )
 
     return discrepancies
 
@@ -386,12 +375,14 @@ def rate_mode_log(
     return log_dict
 
 
+@jaxtyped(typechecker=typechecked)
 def dynamics_log(
     dW: Float[torch.Tensor, "N_I N_E"],
     dM: Float[torch.Tensor, "N_I N_I"],
     k_E: Float[torch.Tensor, "N_I"],
     new_k_E: Float[torch.Tensor, "N_I"],
-    r: Float[torch.Tensor, "N_I"],
+    r: Float[torch.Tensor, "N_I num_latents"],
+    probabilities: Float[torch.Tensor, "num_latents"],
     parameters: SimulationParameters,
     iteration_step: int,
 ) -> dict[str, Any]:
@@ -404,13 +395,22 @@ def dynamics_log(
     excitatory_mass_update_magnitude = torch.sum(torch.abs(new_k_E - k_E)).item() / (
         N_I * dt
     )
+    avg_rates = torch.einsum("ij,j->i", r, probabilities)  # [N_I]
+    centred_r = r - avg_rates.unsqueeze(-1)  # [N_I, num_latents]
+    avg_rate = avg_rates.mean().item()
+    avg_var = (
+        torch.einsum("ij,ij,j->i", centred_r, centred_r, probabilities).mean().item()
+    )
+    avg_second_moment = torch.einsum("ij,ij,j->i", r, r, probabilities).mean().item()
 
     log_dict = {
         "dynamics/recurrent_update_magnitude": recurrent_update_magnitude,
         "dynamics/feedforward_update_magnitude": feedforward_update_magnitude,
         "dynamics/excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
         "dynamics/average_excitatory_mass": torch.mean(new_k_E).item(),
-        "dynamics/average_neuron_rate": torch.mean(r).item(),
+        "dynamics/average_neuron_rate": avg_rate,
+        "dynamics/average_variance": avg_var,
+        "dynamics/avg_second_moment": avg_second_moment,
         "time": dt * iteration_step,
     }
 

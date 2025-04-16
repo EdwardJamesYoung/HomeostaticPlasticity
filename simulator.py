@@ -219,27 +219,19 @@ def deterministic_simulation(
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
-    target_rate = parameters.target_rate
-    target_variance = parameters.target_variance
-    variable_input_mass = parameters.variable_input_mass
+    homeostasis_type = parameters.homeostasis_type
+    homeostasis_target = parameters.homeostasis_target
     T = parameters.T
-    dt = parameters.dt
-    tau_v = parameters.tau_v
     tau_u = parameters.tau_u
     tau_M = parameters.tau_M
     tau_W = parameters.tau_W
     tau_k = parameters.tau_k
     zeta = parameters.zeta
     alpha = parameters.alpha
-    activation_function = parameters.activation_function
-    covariance_learning = parameters.covariance_learning
     dynamics_log_time = parameters.dynamics_log_time
     mode_log_time = parameters.mode_log_time
     wandb_logging = parameters.wandb_logging
     device = parameters.device
-    dtype = parameters.dtype
-    rate_homeostasis = parameters.rate_homeostasis
-    variance_homeostasis = parameters.variance_homeostasis
 
     # === Perform checks on the input ===
 
@@ -261,6 +253,17 @@ def deterministic_simulation(
     assert torch.all(
         initial_M >= 0
     ), "Initial recurrent weight matrix has negative entries"
+
+    assert homeostasis_type in [
+        "none",
+        "rate",
+        "variance",
+        "second_moment",
+    ], f"Invalid homeostasis type. Must be one of 'none', 'rate', 'variance', or 'second_moment'. Got {homeostasis_type}"
+    if homeostasis_type != "none":
+        assert (
+            homeostasis_target is not None
+        ), "Homeostasis target must be specified when homeostasis is enabled."
 
     # === Set up before the simulation ===
     W = initial_W.clone()
@@ -296,15 +299,25 @@ def deterministic_simulation(
         dM = torch.einsum("ij,j,kj->ik", r, probabilities, r)  # [N_I, N_I]
 
         # Update the excitatory mass
-        if variable_input_mass:
-            if rate_homeostasis:
-                avg_rate = torch.einsum("ij,j->i", r, probabilities)  # [N_I]
-                ratio = avg_rate / target_rate
-            elif variance_homeostasis:
-                pass
-                # ratio = (r - r_bar).squeeze(-1) ** 2 / target_variance
+        if homeostasis_type != "none":
+            avg_rate = torch.einsum("ij,j->i", r, probabilities)  # [N_I]
+
+            if homeostasis_type == "rate":
+                ratio = avg_rate / homeostasis_target
+            elif homeostasis_type == "variance":
+                centred_r = r - avg_rate.unsqueeze(-1)  # [N_I, num_latents]
+                avg_variance = torch.einsum(
+                    "ij,ij,j->i", centred_r, centred_r, probabilities
+                )  # [N_I]
+                ratio = avg_variance / homeostasis_target
+            elif homeostasis_type == "second_moment":
+                r_squared = r**2  # [N_I, num_latents]
+                avg_r_squared = torch.einsum(
+                    "ij,j->i", r_squared, probabilities
+                )  # [N_I]
+                ratio = avg_r_squared / homeostasis_target
             else:
-                ratio = torch.ones_like(r).mean(dim=1)
+                ratio = torch.ones_like(avg_rate)  # Default case
 
             new_k_E = k_E + k_lr * (1 - ratio)
             new_k_E = torch.clamp(new_k_E, min=1e-14)
@@ -337,11 +350,11 @@ def deterministic_simulation(
 
         if wandb_logging and ii % int(mode_log_time / tau_u) == 0:
             population_response_metrics = compute_population_response_metrics(
-                W=W, M=M, input_generator=input_generator, parameters=parameters
+                rates=r, input_generator=input_generator, parameters=parameters
             )
             log_dict.update(compute_discrepancies(population_response_metrics))
 
-            log_dict.update(rate_mode_log(population_response_metrics, parameters))
+            # log_dict.update(rate_mode_log(population_response_metrics, parameters))
 
         if wandb_logging and ii % int(dynamics_log_time / tau_u) == 0:
             log_dict.update(
@@ -351,6 +364,7 @@ def deterministic_simulation(
                     k_E=k_E,
                     new_k_E=new_k_E,
                     r=r,
+                    probabilities=probabilities,
                     parameters=parameters,
                     iteration_step=ii,
                 )
@@ -480,8 +494,8 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
-    target_rate = parameters.target_rate
-    target_variance = parameters.target_variance
+    homeostasis_target = parameters.homeostasis_target
+    homeostasis_type = parameters.homeostasis_type
     activation_function = parameters.activation_function
     omega = parameters.omega
     initial_feedforward_weight_scaling = parameters.initial_feedforward_weight_scaling
@@ -491,14 +505,17 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
 
     torch.manual_seed(random_seed)
 
-    if target_rate is not None:
+    if homeostasis_type == "rate":
         k_E = (
             N_E
             * torch.sqrt(torch.tensor(omega / N_I))
-            * ((k_I * target_rate) + activation_function.inverse(target_rate))
-            / (torch.sqrt(torch.tensor(target_rate)))
+            * (
+                (k_I * homeostasis_target)
+                + activation_function.inverse(homeostasis_target)
+            )
+            / (torch.sqrt(torch.tensor(homeostasis_target)))
         )
-    elif target_variance is not None:
+    elif homeostasis_type == "variance" or homeostasis_type == "second_moment":
         k_E = N_E * k_I * torch.sqrt(torch.tensor(omega / N_I))
     else:
         raise ValueError("Must specify either target rate or target variance")
