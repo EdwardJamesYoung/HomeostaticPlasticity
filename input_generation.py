@@ -384,6 +384,7 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         parameters: SimulationParameters,
         mixing_parameter: float,
         vm_concentration: float,
+        density_location: float,
         tuning_width: float,
     ):
         super().__init__(parameters=parameters)
@@ -396,6 +397,7 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         assert 0 < tuning_width, f"Tuning width must be positive. Got {tuning_width}."
         self.mixing_parameter = mixing_parameter
         self.vm_concentration = vm_concentration
+        self.density_location = density_location
         self.tuning_width = tuning_width
         self.neuron_positions = torch.linspace(
             -torch.pi, torch.pi, self.N_E + 1, device=self.device, dtype=self.dtype
@@ -438,7 +440,8 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         # Compute mode strengths as the density of the uniform von-mises mixture
         stimuli_probabilities = self.mixing_parameter * torch.exp(
             torch.distributions.VonMises(
-                loc=torch.zeros(1, device=self.device),
+                loc=self.density_location
+                * torch.ones(1, device=self.device, dtype=self.dtype),
                 concentration=self.vm_concentration,
             ).log_prob(self.stimuli_positions)
         ) + (1 - self.mixing_parameter) / (2 * torch.pi)
@@ -508,16 +511,20 @@ class ModulatedCircularGenerator(CircularGenerator):
         parameters: SimulationParameters,
         mixing_parameter: float,
         vm_concentration: float,
+        density_location: float,
         tuning_width: float,
         modulation_mixing_parameter: float,
         modulation_vm_concentration: float,
+        modulation_location: float,
     ):
         self.modulation_mixing_parameter = modulation_mixing_parameter
         self.modulation_vm_concentration = modulation_vm_concentration
+        self.modulation_location = modulation_location
         super().__init__(
             parameters=parameters,
             mixing_parameter=mixing_parameter,
             vm_concentration=vm_concentration,
+            density_location=density_location,
             tuning_width=tuning_width,
         )
 
@@ -549,7 +556,8 @@ class ModulatedCircularGenerator(CircularGenerator):
         # Calculate modulation factor for each stimulus position
         modulation_curve = self.modulation_mixing_parameter * torch.exp(
             torch.distributions.VonMises(
-                loc=torch.zeros(1, device=self.device),
+                loc=self.modulation_location
+                * torch.ones(1, device=self.device, dtype=self.dtype),
                 concentration=self.modulation_vm_concentration,
             ).log_prob(self.stimuli_positions)
         ) + (1 - self.modulation_mixing_parameter) / (
@@ -609,11 +617,6 @@ def compute_input_magnitude(parameters: SimulationParameters):
     N_I = parameters.N_I
     omega = parameters.omega
 
-    if parameters.target_rate is not None:
-        target = parameters.target_rate
-    elif parameters.target_variance is not None:
-        target = parameters.target_variance
-    else:
-        raise ValueError("Must specify either target rate or target variance")
+    homeostasis_target = parameters.homeostasis_target
 
-    return (target * N_I) / (omega * num_latents)
+    return (homeostasis_target * N_I) / (omega * num_latents)

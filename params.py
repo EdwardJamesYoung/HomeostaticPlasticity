@@ -2,9 +2,6 @@ import torch
 from dataclasses import dataclass, fields, asdict
 from typing import Optional
 from activation_functions import *
-from typing import Literal
-
-HomeostasisType = Literal["rate", "variance", "second_moment", "none"]
 
 ACTIVATION_FUNCTION_MAP = {
     "rectified_quadratic": RectifiedQuadratic,
@@ -31,8 +28,9 @@ class SimulationParameters:
     tau_k: float = 500.0
     zeta: float = 1.0
     alpha: float = 1.0
-    homeostasis_type: HomeostasisType = "none"
-    homeostasis_target: Optional[float] = None
+    homeostasis: bool = True
+    homeostasis_power: float = 1.0
+    homeostasis_target: float = 1.0
     omega: float = 1.0
     initial_feedforward_weight_scaling: float = 1.0
     activation_function_name: str = "rectified_quadratic"
@@ -65,17 +63,11 @@ class SimulationParameters:
         self.__post_init__()
 
     def __post_init__(self):
-        # Check that the homeostasis type is valid
-        valid_homeostasis_types = ["rate", "variance", "second_moment", "none"]
-        assert (
-            self.homeostasis_type in valid_homeostasis_types
-        ), f"Invalid homeostasis type. Must be one of {valid_homeostasis_types}"
 
-        # If homeostasis is enabled (not 'none'), ensure a target is specified
-        if self.homeostasis_type != "none":
-            assert (
-                self.homeostasis_target is not None
-            ), f"Must specify homeostasis_target when homeostasis_type is '{self.homeostasis_type}'"
+        # Check that the homeostasis power is positive
+        assert (
+            self.homeostasis_power > 0
+        ), f"Homeostasis power must be positive. Got {self.homeostasis_power}."
 
         # Check whether the activation function is the same as the activation function name
         if self.activation_function_name in ACTIVATION_FUNCTION_MAP:

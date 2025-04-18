@@ -6,7 +6,6 @@ from typeguard import typechecked
 from input_generation import InputGenerator, DiscreteGenerator
 from params import SimulationParameters
 from compute_metrics import (
-    rate_mode_log,
     compute_population_response_metrics,
     compute_discrepancies,
     dynamics_log,
@@ -154,7 +153,7 @@ def run_simulation(
             )
             log_dict.update(compute_discrepancies(population_response_metrics))
 
-            log_dict.update(rate_mode_log(population_response_metrics, parameters))
+            # log_dict.update(rate_mode_log(population_response_metrics, parameters))
 
         if wandb_logging and ii % int(dynamics_log_time / dt) == 0:
             log_dict.update(
@@ -219,7 +218,8 @@ def deterministic_simulation(
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
-    homeostasis_type = parameters.homeostasis_type
+    homeostasis = parameters.homeostasis
+    homeostasis_power = parameters.homeostasis_power
     homeostasis_target = parameters.homeostasis_target
     T = parameters.T
     tau_u = parameters.tau_u
@@ -253,17 +253,6 @@ def deterministic_simulation(
     assert torch.all(
         initial_M >= 0
     ), "Initial recurrent weight matrix has negative entries"
-
-    assert homeostasis_type in [
-        "none",
-        "rate",
-        "variance",
-        "second_moment",
-    ], f"Invalid homeostasis type. Must be one of 'none', 'rate', 'variance', or 'second_moment'. Got {homeostasis_type}"
-    if homeostasis_type != "none":
-        assert (
-            homeostasis_target is not None
-        ), "Homeostasis target must be specified when homeostasis is enabled."
 
     # === Set up before the simulation ===
     W = initial_W.clone()
@@ -299,25 +288,11 @@ def deterministic_simulation(
         dM = torch.einsum("ij,j,kj->ik", r, probabilities, r)  # [N_I, N_I]
 
         # Update the excitatory mass
-        if homeostasis_type != "none":
-            avg_rate = torch.einsum("ij,j->i", r, probabilities)  # [N_I]
-
-            if homeostasis_type == "rate":
-                ratio = avg_rate / homeostasis_target
-            elif homeostasis_type == "variance":
-                centred_r = r - avg_rate.unsqueeze(-1)  # [N_I, num_latents]
-                avg_variance = torch.einsum(
-                    "ij,ij,j->i", centred_r, centred_r, probabilities
-                )  # [N_I]
-                ratio = avg_variance / homeostasis_target
-            elif homeostasis_type == "second_moment":
-                r_squared = r**2  # [N_I, num_latents]
-                avg_r_squared = torch.einsum(
-                    "ij,j->i", r_squared, probabilities
-                )  # [N_I]
-                ratio = avg_r_squared / homeostasis_target
-            else:
-                ratio = torch.ones_like(avg_rate)  # Default case
+        if homeostasis:
+            homeostatic_quantity = torch.einsum(
+                "ij,j->i", r**homeostasis_power, probabilities
+            )
+            ratio = homeostatic_quantity / homeostasis_target
 
             new_k_E = k_E + k_lr * (1 - ratio)
             new_k_E = torch.clamp(new_k_E, min=1e-14)
@@ -494,9 +469,6 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
-    homeostasis_target = parameters.homeostasis_target
-    homeostasis_type = parameters.homeostasis_type
-    activation_function = parameters.activation_function
     omega = parameters.omega
     initial_feedforward_weight_scaling = parameters.initial_feedforward_weight_scaling
     dtype = parameters.dtype
@@ -505,21 +477,20 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
 
     torch.manual_seed(random_seed)
 
-    if homeostasis_type == "rate":
-        k_E = (
-            N_E
-            * torch.sqrt(torch.tensor(omega / N_I))
-            * (
-                (k_I * homeostasis_target)
-                + activation_function.inverse(homeostasis_target)
-            )
-            / (torch.sqrt(torch.tensor(homeostasis_target)))
-        )
-    elif homeostasis_type == "variance" or homeostasis_type == "second_moment":
-        k_E = N_E * k_I * torch.sqrt(torch.tensor(omega / N_I))
-    else:
-        raise ValueError("Must specify either target rate or target variance")
+    # TODO: fix this shit
+    # if homeostasis_type == "rate":
+    #     k_E = (
+    #         N_E
+    #         * torch.sqrt(torch.tensor(omega / N_I))
+    #         * (
+    #             (k_I * homeostasis_target)
+    #             + activation_function.inverse(homeostasis_target)
+    #         )
+    #         / (torch.sqrt(torch.tensor(homeostasis_target)))
+    #     )
+    # elif homeostasis_type == "variance" or homeostasis_type == "second_moment":
 
+    k_E = N_E * k_I * torch.sqrt(torch.tensor(omega / N_I))
     k_E = initial_feedforward_weight_scaling * k_E
 
     # Draw an input weight matrix at random

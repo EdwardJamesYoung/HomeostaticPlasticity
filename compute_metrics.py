@@ -22,6 +22,13 @@ from utils import (
 from scipy.interpolate import interp1d
 
 
+def renormalise(
+    curve: Float[torch.Tensor, "num_latents"],
+) -> Float[torch.Tensor, "num_latents"]:
+    """Renormalise a curve to sum to 1."""
+    return curve / curve.sum()
+
+
 @jaxtyped(typechecker=typechecked)
 def compute_firing_rates(
     W: Float[torch.Tensor, "N_I N_E"],
@@ -86,84 +93,10 @@ def compute_population_response_metrics(
     r"""For consistency, everything here is going to be in torch. Then we'll convert when we return."""
 
     N_E = parameters.N_E
-    num_latents = parameters.num_latents
     N_I = parameters.N_I
 
     stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
-    squared_stimuli_probabilities = (
-        stimuli_probabilities**2
-    )  # [num_latents] (squared probabilities of each stimulus)
-    # Normalise this to sum to 1
-    squared_stimuli_probabilities = (
-        squared_stimuli_probabilities / squared_stimuli_probabilities.sum()
-    )  # [num_latents]
-
     stimuli_modulation_curve = input_generator.modulation_curve  # [num_latents]
-    squared_stimuli_modulation = (
-        stimuli_modulation_curve**2
-    )  # [num_latents] (squared modulation of each stimulus)
-
-    # Renormalise both of these curves to sum to 1
-    stimuli_modulation_curve = (
-        stimuli_modulation_curve / stimuli_modulation_curve.sum()
-    )  # [num_latents]
-    squared_stimuli_modulation = (
-        squared_stimuli_modulation / squared_stimuli_modulation.sum()
-    )  # [num_latents]
-
-    stimuli_patterns = input_generator.stimuli_patterns  # [N_E, num_latents]
-    average_input_activation = stimuli_patterns @ stimuli_probabilities.to(
-        dtype=stimuli_patterns.dtype
-    )  # [N_E]
-
-    normalised_average_input_activation = (N_E / num_latents) * (
-        average_input_activation / average_input_activation.sum()
-    )  # [N_E]
-
-    average_rates = rates @ stimuli_probabilities  # [N_I] (average rate of each neuron)
-
-    # Compute the integral of the tuning curves against the stimuli patterns
-    pattern_overlaps = (
-        rates @ stimuli_patterns.T
-    )  # [N_I, num_latents] @ [num_latents, N_E] = [N_I, N_E]
-    # Normalise to turn the sum into an integral
-    pattern_overlaps = pattern_overlaps * (2 * torch.pi / num_latents)  # [N_I, N_E]
-
-    # Compute the input pattern overlap matrix
-    overlap_matrix = (
-        stimuli_patterns @ stimuli_patterns.T
-    )  # [N_E, num_latents] @ [num_latents, N_E] = [N_E, N_E]
-
-    # Compute the inverse overlap matrix
-    # inverse_overlap_matrix = torch.linalg.inv(overlap_matrix)  # [N_E, N_E]
-    generalised_gain_matrix = torch.linalg.solve(
-        overlap_matrix,
-        pattern_overlaps.T,
-    )  # [N_E, N_E] @ [N_E, N_I] = [N_E, N_I]
-    # This assumes that the overlap matrix is invertible.
-    # This requires that num_latents >= N_E.
-
-    # Compute the generalised density
-    generalised_density = (
-        generalised_gain_matrix / generalised_gain_matrix.sum(axis=0, keepdim=True)
-    ).sum(
-        axis=1
-    )  # [N_E]
-
-    # Compute the generalised gain
-    generalised_gain = (generalised_gain_matrix / generalised_density.unsqueeze(1)).sum(
-        axis=1
-    )  # [N_E]
-
-    # Take the inner product against the input patterns to get the density of the preferred stimulus
-    generalised_density = (
-        generalised_density @ stimuli_patterns
-    )  # [N_E] @ [N_E, num_latents] = [num_latents]
-
-    # Take the inner product against the input patterns to get the gain of the preferred stimulus
-    generalised_gain = (
-        generalised_gain @ stimuli_patterns
-    )  # [N_E] @ [N_E, num_latents] = [num_latents]
 
     argmax_rates = rates.argmax(
         axis=1
@@ -174,17 +107,12 @@ def compute_population_response_metrics(
     ].flatten()  # [N_I] (stimuli of max response)
     max_rates, _ = rates.max(axis=1)  # [N_I]
 
-    normalised_max_rates = (N_I / num_latents) * max_rates / max_rates.sum()  # [N_I]
-
     total_rate = rates.sum(axis=0)  # [num_latents]
-    normalised_total_rate = total_rate / total_rate.sum()  # [num_latents]
-
-    argmax_stimuli = argmax_stimuli  # [N_I] (stimuli of max response)
 
     bw_multiplier = N_I ** (-0.2)
     max_rate_range = max_rates.max() - max_rates.min()
 
-    smoothed_max_rates = circular_smooth_huber(
+    gains = circular_smooth_huber(
         argmax_stimuli,
         max_rates,
         stimulus_space,
@@ -192,56 +120,41 @@ def compute_population_response_metrics(
         delta=0.25 * max_rate_range.item(),
     )  # [num_latents]
 
-    preferred_stimulus_density = circular_kde(
+    density = circular_kde(
         argmax_stimuli, stimulus_space, bw=bw_multiplier * 0.2
     )  # [num_latents]
 
-    density_times_gain = preferred_stimulus_density * smoothed_max_rates
-    density_times_gain = density_times_gain / density_times_gain.sum()  # [num_latents]
-
-    # Squared modulation curve times squared stimulus probabilities
-    mmpp = squared_stimuli_modulation * squared_stimuli_probabilities  # [num_latents]
-    mmpp = mmpp / mmpp.sum()  # [num_latents]
-    mmp = squared_stimuli_modulation * stimuli_probabilities  # [num_latents]
-    mmp = mmp / mmp.sum()  # [num_latents]
-    mp = stimuli_modulation_curve * squared_stimuli_probabilities  # [num_latents]
-    mp = mp / mp.sum()  # [num_latents]
-
-    # Compute the inverse gains
-    inverse_gains = 1 / smoothed_max_rates
-    # Normalise
-    inverse_gains = inverse_gains / inverse_gains.sum()
-
-    gains = smoothed_max_rates / smoothed_max_rates.sum()  # [num_latents]
-
     population_response_metrics = {
-        "stimuli_probabilities": stimuli_probabilities.detach().cpu().numpy(),
-        "stimuli_patterns": stimuli_patterns.detach().cpu().numpy(),
-        "stimulus_space": stimulus_space.detach().cpu().numpy(),
-        "normalised_average_input_activation": normalised_average_input_activation.detach()
-        .cpu()
-        .numpy(),
-        "rates": rates.detach().cpu().numpy(),
-        "normalised_max_rates": normalised_max_rates.detach().cpu().numpy(),
-        "argmax_stimuli": argmax_stimuli.detach().cpu().numpy(),
-        "normalised_total_rate": normalised_total_rate.detach().cpu().numpy(),
-        "smoothed_max_rates": smoothed_max_rates.detach().cpu().numpy(),
-        "gains": gains.detach().cpu().numpy(),
-        "preferred_stimulus_density": preferred_stimulus_density.detach().cpu().numpy(),
-        "density_times_gain": density_times_gain.detach().cpu().numpy(),
-        "average_rates": average_rates.detach().cpu().numpy(),
-        "pattern_overlaps": pattern_overlaps.detach().cpu().numpy(),
-        "generalised_density": generalised_density.detach().cpu().numpy(),
-        "generalised_gain": generalised_gain.detach().cpu().numpy(),
-        "squared_stimuli_probabilities": squared_stimuli_probabilities.detach()
-        .cpu()
-        .numpy(),
-        "stimuli_modulation_curve": stimuli_modulation_curve.detach().cpu().numpy(),
-        "squared_stimuli_modulation": squared_stimuli_modulation.detach().cpu().numpy(),
-        "m^2 p^2": mmpp.detach().cpu().numpy(),
-        "m^2 p": mmp.detach().cpu().numpy(),
-        "m p": mp.detach().cpu().numpy(),
-        "inverse_gains": inverse_gains.detach().cpu().numpy(),
+        "c": torch.ones_like(total_rate),
+        "i": stimuli_modulation_curve,
+        "i^2": stimuli_modulation_curve**2,
+        "p": stimuli_probabilities,
+        "p^{-1/alpha}": stimuli_probabilities ** (-1 / parameters.homeostasis_power),
+        "p i": stimuli_probabilities * stimuli_modulation_curve,
+        "p^{2/alpha} i^2": (
+            stimuli_probabilities ** (2 / parameters.homeostasis_power)
+            * stimuli_modulation_curve**2
+        ),
+        "p^{1/alpha} i^2": (
+            stimuli_probabilities ** (1 / parameters.homeostasis_power)
+            * stimuli_modulation_curve**2
+        ),
+        "r": total_rate,
+        "d": density,
+        "g": gains,
+        "g d": density * gains,
+        "g^2 d": density * (gains**2),
+    }
+
+    # Normalise the curves to sum to 1
+    population_response_metrics = {
+        key: renormalise(value) for key, value in population_response_metrics.items()
+    }
+
+    # Convert to numpy arrays for logging
+    population_response_metrics = {
+        key: value.detach().cpu().numpy()
+        for key, value in population_response_metrics.items()
     }
 
     return population_response_metrics
@@ -251,51 +164,33 @@ def compute_population_response_metrics(
 def compute_discrepancies(
     population_response_metrics: dict[str, Any],
 ) -> dict[str, float]:
-    # Extract metrics from the population_metrics dictionary
-    normalised_total_rate = population_response_metrics[
-        "normalised_total_rate"
-    ]  # [num_latents]
-    preferred_stimulus_density = population_response_metrics[
-        "preferred_stimulus_density"
-    ]  # [num_latents]
-    squared_stimuli_probabilities = population_response_metrics[
-        "squared_stimuli_probabilities"
-    ]  # [num_latents]
-    stimuli_probabilities = population_response_metrics[
-        "stimuli_probabilities"
-    ]  # [num_latents]
-    stimuli_modulation = population_response_metrics[
-        "stimuli_modulation_curve"
-    ]  # [num_latents]
-    squared_stimuli_modulation = population_response_metrics[
-        "squared_stimuli_modulation"
-    ]  # [num_latents]
-    constant_curve = np.ones_like(normalised_total_rate) / len(
-        normalised_total_rate
-    )  # [num_latents]
-    gains = population_response_metrics["gains"]  # [num_latents]
-    inverse_gains = population_response_metrics["inverse_gains"]  # [num_latents]
-    mmpp = population_response_metrics["m^2 p^2"]  # [num_latents]
-    mmp = population_response_metrics["m^2 p"]  # [num_latents]
-    mp = population_response_metrics["m p"]  # [num_latents]
 
-    stable_curves = {
-        "p": stimuli_probabilities,
-        "p^2": squared_stimuli_probabilities,
-        "m": stimuli_modulation,
-        "m^2": squared_stimuli_modulation,
-        "c": constant_curve,
-        "m^2 p^2": mmpp,
-        "m^2 p": mmp,
-        "m p": mp,
+    stable_curves_keys = [
+        "c",
+        "i",
+        "i^2",
+        "p",
+        "p^{-1/alpha}",
+        "p i",
+        "p^{2/alpha} i^2",
+        "p^{1/alpha} i^2",
+    ]
+
+    non_stable_curves_keys = {
+        "r",
+        "d",
+        "g",
+        "g d",
+        "g^2 d",
+        "c",
     }
 
+    # Extract the curves from the population_response_metrics dictionary
+    stable_curves = {
+        key: population_response_metrics[key] for key in stable_curves_keys
+    }
     non_stable_curves = {
-        "r": normalised_total_rate,
-        "d": preferred_stimulus_density,
-        "g": gains,
-        "1/g": inverse_gains,
-        "c": constant_curve,
+        key: population_response_metrics[key] for key in non_stable_curves_keys
     }
 
     # Compute the discrepancies between stable curves and non-stable curves
@@ -313,66 +208,6 @@ def compute_discrepancies(
             )
 
     return discrepancies
-
-
-@jaxtyped(typechecker=typechecked)
-def rate_mode_log(
-    population_response_metrics: dict[str, Any],
-    parameters: SimulationParameters,
-) -> dict[str, Any]:
-
-    # Extract metrics from the population_response_metrics dictionary
-    rates = population_response_metrics["rates"]
-    stimuli_probabilities = population_response_metrics["stimuli_probabilities"]
-
-    num_latents = parameters.num_latents
-    mean_rate = np.mean(rates, axis=(0, 1))  # Scalar
-    var_rate = np.sum(np.var(rates, axis=1), axis=0)  # Scalar
-
-    stimuli_rates = np.sum(rates, axis=0)  # [num_latents]
-    rate_probability_ratio = stimuli_rates / stimuli_probabilities
-    mean_rate_probability_ratio = np.mean(rate_probability_ratio)
-    normalised_rate_probability_ratio = (
-        rate_probability_ratio / mean_rate_probability_ratio
-    )
-
-    rate_allocation_error = np.mean(
-        np.abs(rate_probability_ratio - mean_rate_probability_ratio)
-        / np.abs(mean_rate_probability_ratio)
-    )
-
-    # Construct a dictionary with the quantities to be logged:
-    log_dict = {
-        "steady_state/population_rate": mean_rate,
-        "steady_state/population_variance": var_rate,
-    }
-    log_dict.update(
-        {
-            f"steady_state/stimuli_rate_{jj}": stimuli_rates[jj]
-            for jj in range(num_latents)
-        }
-    )
-    log_dict.update(
-        {
-            f"steady_state/rate_probability_ratio_{jj}": rate_probability_ratio[jj]
-            for jj in range(num_latents)
-        }
-    )
-    log_dict.update(
-        {
-            f"steady_state/normalised_rate_probability_ratio_{jj}": normalised_rate_probability_ratio[
-                jj
-            ]
-            for jj in range(num_latents)
-        }
-    )
-    log_dict.update(
-        {
-            "steady_state/rate_allocation_error": rate_allocation_error,
-        }
-    )
-
-    return log_dict
 
 
 @jaxtyped(typechecker=typechecked)
@@ -415,3 +250,265 @@ def dynamics_log(
     }
 
     return log_dict
+
+
+# @jaxtyped(typechecker=typechecked)
+# def compute_discrepancies(
+#     population_response_metrics: dict[str, Any],
+# ) -> dict[str, float]:
+#     # Extract metrics from the population_metrics dictionary
+#     normalised_total_rate = population_response_metrics[
+#         "normalised_total_rate"
+#     ]  # [num_latents]
+#     preferred_stimulus_density = population_response_metrics[
+#         "preferred_stimulus_density"
+#     ]  # [num_latents]
+#     squared_stimuli_probabilities = population_response_metrics[
+#         "squared_stimuli_probabilities"
+#     ]  # [num_latents]
+#     stimuli_probabilities = population_response_metrics[
+#         "stimuli_probabilities"
+#     ]  # [num_latents]
+#     stimuli_modulation = population_response_metrics[
+#         "stimuli_modulation_curve"
+#     ]  # [num_latents]
+#     squared_stimuli_modulation = population_response_metrics[
+#         "squared_stimuli_modulation"
+#     ]  # [num_latents]
+#     constant_curve = np.ones_like(normalised_total_rate) / len(
+#         normalised_total_rate
+#     )  # [num_latents]
+#     gains = population_response_metrics["gains"]  # [num_latents]
+#     inverse_gains = population_response_metrics["inverse_gains"]  # [num_latents]
+#     mmpp = population_response_metrics["m^2 p^2"]  # [num_latents]
+#     mmp = population_response_metrics["m^2 p"]  # [num_latents]
+#     mp = population_response_metrics["m p"]  # [num_latents]
+
+
+# @jaxtyped(typechecker=typechecked)
+# def rate_mode_log(
+#     population_response_metrics: dict[str, Any],
+#     parameters: SimulationParameters,
+# ) -> dict[str, Any]:
+
+#     # Extract metrics from the population_response_metrics dictionary
+#     rates = population_response_metrics["rates"]
+#     stimuli_probabilities = population_response_metrics["stimuli_probabilities"]
+
+#     num_latents = parameters.num_latents
+#     mean_rate = np.mean(rates, axis=(0, 1))  # Scalar
+#     var_rate = np.sum(np.var(rates, axis=1), axis=0)  # Scalar
+
+#     stimuli_rates = np.sum(rates, axis=0)  # [num_latents]
+#     rate_probability_ratio = stimuli_rates / stimuli_probabilities
+#     mean_rate_probability_ratio = np.mean(rate_probability_ratio)
+#     normalised_rate_probability_ratio = (
+#         rate_probability_ratio / mean_rate_probability_ratio
+#     )
+
+#     rate_allocation_error = np.mean(
+#         np.abs(rate_probability_ratio - mean_rate_probability_ratio)
+#         / np.abs(mean_rate_probability_ratio)
+#     )
+
+#     # Construct a dictionary with the quantities to be logged:
+#     log_dict = {
+#         "steady_state/population_rate": mean_rate,
+#         "steady_state/population_variance": var_rate,
+#     }
+#     log_dict.update(
+#         {
+#             f"steady_state/stimuli_rate_{jj}": stimuli_rates[jj]
+#             for jj in range(num_latents)
+#         }
+#     )
+#     log_dict.update(
+#         {
+#             f"steady_state/rate_probability_ratio_{jj}": rate_probability_ratio[jj]
+#             for jj in range(num_latents)
+#         }
+#     )
+#     log_dict.update(
+#         {
+#             f"steady_state/normalised_rate_probability_ratio_{jj}": normalised_rate_probability_ratio[
+#                 jj
+#             ]
+#             for jj in range(num_latents)
+#         }
+#     )
+#     log_dict.update(
+#         {
+#             "steady_state/rate_allocation_error": rate_allocation_error,
+#         }
+#     )
+
+#     return log_dict
+
+
+# def compute_population_response_metrics(
+#     rates: Float[torch.Tensor, "N_I num_latents"],
+#     input_generator: ModulatedCircularGenerator,
+#     parameters: SimulationParameters,
+# ) -> dict[str, Any]:
+#     r"""For consistency, everything here is going to be in torch. Then we'll convert when we return."""
+
+#     N_E = parameters.N_E
+#     num_latents = parameters.num_latents
+#     N_I = parameters.N_I
+
+#     stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
+#     squared_stimuli_probabilities = (
+#         stimuli_probabilities**2
+#     )  # [num_latents] (squared probabilities of each stimulus)
+#     # Normalise this to sum to 1
+#     squared_stimuli_probabilities = (
+#         squared_stimuli_probabilities / squared_stimuli_probabilities.sum()
+#     )  # [num_latents]
+
+#     stimuli_modulation_curve = input_generator.modulation_curve  # [num_latents]
+#     squared_stimuli_modulation = (
+#         stimuli_modulation_curve**2
+#     )  # [num_latents] (squared modulation of each stimulus)
+
+#     # Renormalise both of these curves to sum to 1
+#     stimuli_modulation_curve = (
+#         stimuli_modulation_curve / stimuli_modulation_curve.sum()
+#     )  # [num_latents]
+#     squared_stimuli_modulation = (
+#         squared_stimuli_modulation / squared_stimuli_modulation.sum()
+#     )  # [num_latents]
+
+#     stimuli_patterns = input_generator.stimuli_patterns  # [N_E, num_latents]
+#     average_input_activation = stimuli_patterns @ stimuli_probabilities.to(
+#         dtype=stimuli_patterns.dtype
+#     )  # [N_E]
+
+#     normalised_average_input_activation = (N_E / num_latents) * (
+#         average_input_activation / average_input_activation.sum()
+#     )  # [N_E]
+
+#     average_rates = rates @ stimuli_probabilities  # [N_I] (average rate of each neuron)
+
+#     # Compute the integral of the tuning curves against the stimuli patterns
+#     pattern_overlaps = (
+#         rates @ stimuli_patterns.T
+#     )  # [N_I, num_latents] @ [num_latents, N_E] = [N_I, N_E]
+#     # Normalise to turn the sum into an integral
+#     pattern_overlaps = pattern_overlaps * (2 * torch.pi / num_latents)  # [N_I, N_E]
+
+#     # Compute the input pattern overlap matrix
+#     overlap_matrix = (
+#         stimuli_patterns @ stimuli_patterns.T
+#     )  # [N_E, num_latents] @ [num_latents, N_E] = [N_E, N_E]
+
+#     # Compute the inverse overlap matrix
+#     # inverse_overlap_matrix = torch.linalg.inv(overlap_matrix)  # [N_E, N_E]
+#     generalised_gain_matrix = torch.linalg.solve(
+#         overlap_matrix,
+#         pattern_overlaps.T,
+#     )  # [N_E, N_E] @ [N_E, N_I] = [N_E, N_I]
+#     # This assumes that the overlap matrix is invertible.
+#     # This requires that num_latents >= N_E.
+
+#     # Compute the generalised density
+#     generalised_density = (
+#         generalised_gain_matrix / generalised_gain_matrix.sum(axis=0, keepdim=True)
+#     ).sum(
+#         axis=1
+#     )  # [N_E]
+
+#     # Compute the generalised gain
+#     generalised_gain = (generalised_gain_matrix / generalised_density.unsqueeze(1)).sum(
+#         axis=1
+#     )  # [N_E]
+
+#     # Take the inner product against the input patterns to get the density of the preferred stimulus
+#     generalised_density = (
+#         generalised_density @ stimuli_patterns
+#     )  # [N_E] @ [N_E, num_latents] = [num_latents]
+
+#     # Take the inner product against the input patterns to get the gain of the preferred stimulus
+#     generalised_gain = (
+#         generalised_gain @ stimuli_patterns
+#     )  # [N_E] @ [N_E, num_latents] = [num_latents]
+
+#     argmax_rates = rates.argmax(
+#         axis=1
+#     )  # [N_I] (indices of max response in num_latents)
+#     stimulus_space = input_generator.stimuli_positions.squeeze()  # [num_latents]
+#     argmax_stimuli = stimulus_space[
+#         argmax_rates
+#     ].flatten()  # [N_I] (stimuli of max response)
+#     max_rates, _ = rates.max(axis=1)  # [N_I]
+
+#     normalised_max_rates = (N_I / num_latents) * max_rates / max_rates.sum()  # [N_I]
+
+#     total_rate = rates.sum(axis=0)  # [num_latents]
+#     normalised_total_rate = total_rate / total_rate.sum()  # [num_latents]
+
+#     argmax_stimuli = argmax_stimuli  # [N_I] (stimuli of max response)
+
+#     bw_multiplier = N_I ** (-0.2)
+#     max_rate_range = max_rates.max() - max_rates.min()
+
+#     smoothed_max_rates = circular_smooth_huber(
+#         argmax_stimuli,
+#         max_rates,
+#         stimulus_space,
+#         bw=bw_multiplier * 0.4,
+#         delta=0.25 * max_rate_range.item(),
+#     )  # [num_latents]
+
+#     preferred_stimulus_density = circular_kde(
+#         argmax_stimuli, stimulus_space, bw=bw_multiplier * 0.2
+#     )  # [num_latents]
+
+#     density_times_gain = preferred_stimulus_density * smoothed_max_rates
+#     density_times_gain = density_times_gain / density_times_gain.sum()  # [num_latents]
+
+#     # Squared modulation curve times squared stimulus probabilities
+#     mmpp = squared_stimuli_modulation * squared_stimuli_probabilities  # [num_latents]
+#     mmpp = mmpp / mmpp.sum()  # [num_latents]
+#     mmp = squared_stimuli_modulation * stimuli_probabilities  # [num_latents]
+#     mmp = mmp / mmp.sum()  # [num_latents]
+#     mp = stimuli_modulation_curve * squared_stimuli_probabilities  # [num_latents]
+#     mp = mp / mp.sum()  # [num_latents]
+
+#     # Compute the inverse gains
+#     inverse_gains = 1 / smoothed_max_rates
+#     # Normalise
+#     inverse_gains = inverse_gains / inverse_gains.sum()
+
+#     gains = smoothed_max_rates / smoothed_max_rates.sum()  # [num_latents]
+
+#     population_response_metrics = {
+#         "stimuli_probabilities": stimuli_probabilities.detach().cpu().numpy(),
+#         "stimuli_patterns": stimuli_patterns.detach().cpu().numpy(),
+#         "stimulus_space": stimulus_space.detach().cpu().numpy(),
+#         "normalised_average_input_activation": normalised_average_input_activation.detach()
+#         .cpu()
+#         .numpy(),
+#         "rates": rates.detach().cpu().numpy(),
+#         "normalised_max_rates": normalised_max_rates.detach().cpu().numpy(),
+#         "argmax_stimuli": argmax_stimuli.detach().cpu().numpy(),
+#         "normalised_total_rate": normalised_total_rate.detach().cpu().numpy(),
+#         "smoothed_max_rates": smoothed_max_rates.detach().cpu().numpy(),
+#         "gains": gains.detach().cpu().numpy(),
+#         "preferred_stimulus_density": preferred_stimulus_density.detach().cpu().numpy(),
+#         "density_times_gain": density_times_gain.detach().cpu().numpy(),
+#         "average_rates": average_rates.detach().cpu().numpy(),
+#         "pattern_overlaps": pattern_overlaps.detach().cpu().numpy(),
+#         "generalised_density": generalised_density.detach().cpu().numpy(),
+#         "generalised_gain": generalised_gain.detach().cpu().numpy(),
+#         "squared_stimuli_probabilities": squared_stimuli_probabilities.detach()
+#         .cpu()
+#         .numpy(),
+#         "stimuli_modulation_curve": stimuli_modulation_curve.detach().cpu().numpy(),
+#         "squared_stimuli_modulation": squared_stimuli_modulation.detach().cpu().numpy(),
+#         "m^2 p^2": mmpp.detach().cpu().numpy(),
+#         "m^2 p": mmp.detach().cpu().numpy(),
+#         "m p": mp.detach().cpu().numpy(),
+#         "inverse_gains": inverse_gains.detach().cpu().numpy(),
+#     }
+
+#     return population_response_metrics
