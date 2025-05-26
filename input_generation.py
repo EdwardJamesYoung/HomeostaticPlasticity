@@ -4,7 +4,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from params import SimulationParameters
 
 
@@ -505,6 +505,149 @@ class CircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
         return 0.0
 
 
+# class WarpedCircularGenerator(DiscreteGenerator, PiecewiseConstantGenerator):
+#     def __init__(
+#         self,
+#         parameters: SimulationParameters,
+#         mixing_parameter: float,
+#         vm_concentration: float,
+#         density_location: float,
+#         tuning_width: float,
+#         warping_mixing_parameter: float,
+#         warping_vm_concentration: float,
+#         warping_location: float,
+#     ):
+#         super().__init__(parameters=parameters)
+#         assert (
+#             0 <= mixing_parameter <= 1
+#         ), f"Mixing parameter must be between 0 and 1. Got {mixing_parameter}."
+#         assert (
+#             0 < vm_concentration
+#         ), f"Von Mises concentration must be positive. Got {vm_concentration}."
+#         assert (
+#             0 <= warping_mixing_parameter <= 1
+#         ), f"Warping mixing parameter must be between 0 and 1. Got {warping_mixing_parameter}."
+#         assert (
+#             0 < warping_vm_concentration
+#         ), f"Warping Von Mises concentration must be positive. Got {warping_vm_concentration}."
+
+
+#         assert 0 < tuning_width, f"Tuning width must be positive. Got {tuning_width}."
+#         self.mixing_parameter = mixing_parameter
+#         self.vm_concentration = vm_concentration
+#         self.density_location = density_location
+#         self.tuning_width = tuning_width
+#         self.warping_mixing_parameter = warping_mixing_parameter
+#         self.warping_vm_concentration = warping_vm_concentration
+#         self.warping_location = warping_location
+
+
+#         self.neuron_positions = torch.linspace(
+#             -torch.pi, torch.pi, self.N_E + 1, device=self.device, dtype=self.dtype
+#         )[: self.N_E].view(
+#             -1, 1
+#         )  # [N_E, 1]
+#         self.stimuli_positions = torch.linspace(
+#             -torch.pi,
+#             torch.pi,
+#             self.num_latents + 1,
+#             device=self.device,
+#             dtype=self.dtype,
+#         )[: self.num_latents].view(
+#             -1, 1
+#         )  # [num_latents, 1]
+
+#         # Normalize probabilities to sum to 1
+#         self._stimuli_probabilities = self._compute_stimuli_probabilities()
+
+#         # Pre-compute all stimulus patterns
+#         self._stimuli_patterns = self._compute_stimuli_patterns()
+
+#     def __dict__(self) -> Dict[str, Any]:
+#         return {
+#             "tau_u": self.tau_u,
+#             "mixing_parameter": self.mixing_parameter,
+#             "vm_concentration": self.vm_concentration,
+#             "tuning_width": self.tuning_width,
+#         }
+
+#     def _compute_stimuli_probabilities(
+#         self,
+#     ) -> Float[torch.Tensor, "{self.num_latents}"]:
+#         """
+#         Compute the probabilities of sampling each stimulus.
+
+#         Returns:
+#             torch.Tensor: Tensor of shape [n_stimuli] containing probabilities that sum to 1
+#         """
+#         # Compute mode strengths as the density of the uniform von-mises mixture
+#         stimuli_probabilities = self.mixing_parameter * torch.exp(
+#             torch.distributions.VonMises(
+#                 loc=self.density_location
+#                 * torch.ones(1, device=self.device, dtype=self.dtype),
+#                 concentration=self.vm_concentration,
+#             ).log_prob(self.stimuli_positions)
+#         ) + (1 - self.mixing_parameter) / (2 * torch.pi)
+#         # Renormlise mode strenghts to sum to one
+#         stimuli_probabilities /= stimuli_probabilities.sum()
+#         stimuli_probabilities.to(device=self.device, dtype=self.dtype)
+
+#         return stimuli_probabilities.squeeze()  # [num_latents]
+
+#     @jaxtyped(typechecker=typechecked)
+#     def _compute_stimuli_patterns(
+#         self,
+#     ) -> Float[torch.Tensor, "{self.N_E} {self.num_latents}"]:
+#         """
+#         Compute all possible stimulus patterns.
+
+#         Returns:
+
+#         """
+#         # Calculate circular distances between all stimulus positions and neuron positions
+#         circ_distances = torch.abs(self.stimuli_positions.T - self.neuron_positions)
+#         min_distances = torch.minimum(circ_distances, 2 * torch.pi - circ_distances)  #
+
+#         # Compute tuning curve responses
+#         # stimuli_patterns = (
+#         #     compute_input_magnitude(self.parameters)
+#         #     * torch.exp(-(min_distances**2) / (2 * self.tuning_width**2))
+#         #     / (self.tuning_width)
+#         # ).to(device=self.device, dtype=self.dtype)
+
+#         stimuli_patterns = torch.exp(
+#             -(min_distances**2) / (2 * self.tuning_width**2)
+#         ).to(device=self.device, dtype=self.dtype)
+
+#         return stimuli_patterns
+
+#     @property
+#     @jaxtyped(typechecker=typechecked)
+#     def stimuli_patterns(self) -> Float[torch.Tensor, "{self.N_E} {self.num_latents}"]:
+#         """
+#         Returns all possible input stimuli patterns.
+
+#         Returns:
+#             torch.Tensor: Tensor of shape [n_stimuli, N_E] containing all possible stimuli
+#         """
+#         return self._stimuli_patterns
+
+#     @property
+#     @jaxtyped(typechecker=typechecked)
+#     def stimuli_probabilities(self) -> Float[torch.Tensor, "{self.num_latents}"]:
+#         """
+#         Returns the probability of sampling each stimulus.
+
+#         Returns:
+#             torch.Tensor: Tensor of shape [n_stimuli] containing probabilities that sum to 1
+#         """
+#         return self._stimuli_probabilities
+
+#     @jaxtyped(typechecker=typechecked)
+#     def attunement_entropy(self, W: Float[torch.Tensor, "N_I {self.N_E}"]) -> float:
+#         return 0.0
+
+
 class ModulatedCircularGenerator(CircularGenerator):
     def __init__(
         self,
@@ -513,13 +656,28 @@ class ModulatedCircularGenerator(CircularGenerator):
         vm_concentration: float,
         density_location: float,
         tuning_width: float,
-        modulation_mixing_parameter: float,
-        modulation_vm_concentration: float,
-        modulation_location: float,
+        modulation_mixing_parameter: float = 0.0,
+        modulation_vm_concentration: float = 1.0,
+        modulation_location: float = 0.0,
+        warping_mixing_parameter: float = 0.0,
+        warping_vm_concentration: float = 1.0,
+        warping_location: float = 0.0,
+        density_warping_match: bool = False,
     ):
         self.modulation_mixing_parameter = modulation_mixing_parameter
         self.modulation_vm_concentration = modulation_vm_concentration
         self.modulation_location = modulation_location
+        self.density_warping_match = density_warping_match
+
+        if density_warping_match:
+            self.warping_mixing_parameter = mixing_parameter
+            self.warping_vm_concentration = vm_concentration
+            self.warping_location = density_location
+        else:
+            self.warping_mixing_parameter = warping_mixing_parameter
+            self.warping_vm_concentration = warping_vm_concentration
+            self.warping_location = warping_location
+
         super().__init__(
             parameters=parameters,
             mixing_parameter=mixing_parameter,
@@ -546,10 +704,25 @@ class ModulatedCircularGenerator(CircularGenerator):
             circ_distances, 2 * torch.pi - circ_distances
         )  # [N_E, num_latents]
 
+        # Create the warping curve
+        warping_curve = self.warping_mixing_parameter * torch.exp(
+            torch.distributions.VonMises(
+                loc=self.warping_location
+                * torch.ones(1, device=self.device, dtype=self.dtype),
+                concentration=self.warping_vm_concentration,
+            ).log_prob(self.stimuli_positions)
+        ) + (1 - self.warping_mixing_parameter) / (
+            2 * torch.pi
+        )  # [num_latents, 1]
+
+        inverse_warping_curve = 1 / (warping_curve + EPSILON)  # [num_latents, 1]
+        # normalised the inverse warping curve to have a mean of 1
+        inverse_warping_curve = inverse_warping_curve / inverse_warping_curve.mean()
+
+        tuning_widths = self.tuning_width * inverse_warping_curve  # [num_latents, 1]
+
         # Create base tuning curve responses
-        stimuli_patterns = torch.exp(
-            -(min_distances**2) / (2 * self.tuning_width**2)
-        ).to(
+        stimuli_patterns = torch.exp(-(min_distances**2) / (2 * tuning_widths.T**2)).to(
             device=self.device, dtype=self.dtype
         )  # [N_E, num_latents]
 

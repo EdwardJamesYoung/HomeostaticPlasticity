@@ -35,7 +35,10 @@ class SimulationParameters:
     initial_feedforward_weight_scaling: float = 1.0
     activation_function_name: str = "rectified_quadratic"
     activation_function: ActivationFunction = RectifiedQuadratic()
-    covariance_learning: bool = True
+    feedforward_covariance_learning: bool = True
+    recurrent_covariance_learning: bool = True
+    feedforward_voltage_learning: bool = False
+    recurrent_voltage_learning: bool = False
     dynamics_log_time: float = 20.0
     mode_log_time: float = 100.0
     num_samples: int = 10000

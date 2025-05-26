@@ -85,6 +85,131 @@ def compute_firing_rates(
     return r, v
 
 
+@jaxtyped(typechecker=typechecked)
+def compute_firing_rates_momentum(
+    W: Float[torch.Tensor, "N_I N_E"],
+    M: Float[torch.Tensor, "N_I N_I"],
+    u: Float[torch.Tensor, "N_E num_stimuli"],
+    parameters: SimulationParameters,
+    v_init: Optional[Float[torch.Tensor, "N_I num_stimuli"]] = None,
+    beta: float = 0.9,  # Momentum factor
+) -> tuple[
+    Float[torch.Tensor, "N_I num_stimuli"], Float[torch.Tensor, "N_I num_stimuli"]
+]:
+    """
+    Compute the firing rates of a neural network given the input and weight matrices.
+    Uses momentum acceleration for faster convergence.
+
+    Args:
+        W (torch.Tensor): The feedforward weight matrix.
+        M (torch.Tensor): The recurrent weight matrix.
+        u (torch.Tensor): The input to the network.
+        parameters (SimulationParameters): Parameters for the simulation.
+        v_init (Optional[torch.Tensor]): Initial voltage values.
+        beta (float): Momentum coefficient (0 = no momentum, 0.9 = high momentum).
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]: The firing rates and voltages of the network.
+    """
+    # Unpack from parameters
+    dt = parameters.dt
+    tau_v = parameters.tau_v
+    activation_function = parameters.activation_function
+    threshold = parameters.rate_computation_threshold
+    max_iter = parameters.rate_computation_iterations
+
+    # Initialise the input h and the voltage v
+    h = W @ u
+    if v_init is not None:
+        v = v_init
+    else:
+        v = torch.zeros_like(h)
+    r = activation_function(v)
+
+    # Initialize momentum variables
+    delta_r_prev = torch.zeros_like(r)
+
+    r_dot = float("inf")
+    counter = 0
+    # Iterate until the rates have converged
+    while r_dot > threshold and counter < max_iter:
+        v = v + (dt / tau_v) * (h - M @ r - v)
+        r_new = activation_function(v)
+
+        # Calculate current change
+        delta_r = r_new - r
+
+        # Apply momentum
+        r_new = r_new + beta * delta_r_prev
+
+        # Store current change for next iteration
+        delta_r_prev = delta_r
+
+        # Check convergence (using original delta for convergence check)
+        r_dot = torch.mean(torch.abs(delta_r)) / dt
+
+        r = r_new
+        counter += 1
+
+    return r, v
+
+
+@jaxtyped(typechecker=typechecked)
+def compute_firing_rates_newton(
+    W: Float[torch.Tensor, "N_I N_E"],
+    M: Float[torch.Tensor, "N_I N_I"],
+    u: Float[torch.Tensor, "N_E num_stimuli"],
+    parameters: SimulationParameters,
+    r_init: Optional[Float[torch.Tensor, "N_I num_stimuli"]] = None,
+) -> tuple[
+    Float[torch.Tensor, "N_I num_stimuli"], Float[torch.Tensor, "N_I num_stimuli"]
+]:
+    # Unpack parameters
+    activation_function = parameters.activation_function
+    threshold = parameters.rate_computation_threshold
+    max_iter = parameters.rate_computation_iterations
+    N_I = parameters.N_I
+    k_I = parameters.k_I
+    damping = 1.0
+
+    # Initialize
+    h = W @ u
+    r = r_init if r_init is not None else torch.zeros_like(h)
+
+    # Pre-allocate tensors for computations
+    r_expected = torch.empty_like(r)
+    residual = torch.empty_like(r)
+
+    for i in range(max_iter):
+        v_current = h - M @ r  # [N_I num_stimuli]
+        r_expected = activation_function(v_current)
+
+        # Compute residual: r - f(h - M @ r)
+        residual = r - r_expected
+
+        # Check convergence
+        if torch.max(torch.abs(residual)) <= threshold:
+            break
+
+        derivatives = activation_function.derivative(v_current)  # [N_I num_stimuli]
+
+        preconditioner = 1.0 / (
+            1.0 + derivatives * torch.diag(M).unsqueeze(1)
+        )  # [N_I num_stimuli]
+        try:
+            delta_r = -residual * preconditioner  # [N_I num_stimuli]
+            r = r + delta_r  # [N_I num_stimuli]
+            r.clamp_(min=0)  # Ensure non-negativity
+        except:
+            # Fallback to a simple update if numerical issues
+            r = r_expected
+
+    # Final voltage computation
+    v = h - M @ r
+
+    return r, v
+
+
 def compute_population_response_metrics(
     rates: Float[torch.Tensor, "N_I num_latents"],
     input_generator: ModulatedCircularGenerator,
@@ -150,6 +275,17 @@ def compute_population_response_metrics(
     population_response_metrics = {
         key: renormalise(value) for key, value in population_response_metrics.items()
     }
+
+    population_response_metrics.update(
+        {
+            "rates": rates,
+            "argmax_stimuli": argmax_stimuli,
+            "average_rates": torch.einsum(
+                "ij,j->i", rates, stimuli_probabilities
+            ),  # [N_I]
+            "stimulus_space": stimulus_space,
+        }
+    )
 
     # Convert to numpy arrays for logging
     population_response_metrics = {

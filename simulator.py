@@ -10,6 +10,8 @@ from compute_metrics import (
     compute_discrepancies,
     dynamics_log,
     compute_firing_rates,
+    compute_firing_rates_newton,
+    compute_firing_rates_momentum,
 )
 
 
@@ -221,6 +223,10 @@ def deterministic_simulation(
     homeostasis = parameters.homeostasis
     homeostasis_power = parameters.homeostasis_power
     homeostasis_target = parameters.homeostasis_target
+    feedforward_covariance_learning = parameters.feedforward_covariance_learning
+    recurrent_covariance_learning = parameters.recurrent_covariance_learning
+    feedforward_voltage_learning = parameters.feedforward_voltage_learning
+    recurrent_voltage_learning = parameters.recurrent_voltage_learning
     T = parameters.T
     tau_u = parameters.tau_u
     tau_M = parameters.tau_M
@@ -278,14 +284,42 @@ def deterministic_simulation(
     k_lr = tau_u / tau_k
 
     v = None
+    r = None
 
     for ii in range(total_update_steps):
         r, v = compute_firing_rates(
             W, M, stimuli, parameters, v_init=v
         )  # [N_I, num_latents]
 
-        dW = torch.einsum("ij,j,kj->ik", r, probabilities, stimuli)  # [N_I, N_E]
-        dM = torch.einsum("ij,j,kj->ik", r, probabilities, r)  # [N_I, N_I]
+        if feedforward_voltage_learning:
+            feedforward_learning_variable = v
+        else:
+            feedforward_learning_variable = r
+
+        if feedforward_covariance_learning:
+            feedforward_learning_signal = feedforward_learning_variable - torch.sum(
+                feedforward_learning_variable * probabilities, dim=1
+            ).unsqueeze(1)
+        else:
+            feedforward_learning_signal = feedforward_learning_variable
+
+        if recurrent_voltage_learning:
+            recurrent_learning_variable = v
+        else:
+            recurrent_learning_variable = r
+
+        if recurrent_covariance_learning:
+            recurrent_learning_signal = recurrent_learning_variable - torch.sum(
+                recurrent_learning_variable * probabilities, dim=1
+            ).unsqueeze(1)
+        else:
+            recurrent_learning_signal = recurrent_learning_variable
+
+        dW = torch.einsum(
+            "ij,j,kj->ik", feedforward_learning_signal, probabilities, stimuli
+        )  # [N_I, N_E]
+
+        dM = torch.einsum("ij,j,kj->ik", recurrent_learning_signal, probabilities, r)
 
         # Update the excitatory mass
         if homeostasis:

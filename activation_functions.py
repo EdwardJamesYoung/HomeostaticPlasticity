@@ -26,6 +26,9 @@ class ActivationFunction(ABC):
     def inverse(self, r: float) -> float:
         pass
 
+    def derivative(self, x: torch.Tensor) -> torch.Tensor:
+        pass
+
 
 class RectifiedQuadratic(ActivationFunction):
     @property
@@ -37,6 +40,9 @@ class RectifiedQuadratic(ActivationFunction):
 
     def inverse(self, r: float) -> float:
         return r**0.5
+
+    def derivative(self, x: torch.Tensor) -> torch.Tensor:
+        return 2 * torch.max(torch.zeros_like(x), x)
 
 
 class RectifiedLinear(ActivationFunction):
@@ -50,6 +56,9 @@ class RectifiedLinear(ActivationFunction):
     def inverse(self, r: float) -> float:
         return r
 
+    def derivative(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.where(x > 0, torch.ones_like(x), torch.zeros_like(x))
+
 
 class RectifiedPowerlaw1p5(ActivationFunction):
     @property
@@ -62,6 +71,13 @@ class RectifiedPowerlaw1p5(ActivationFunction):
     def inverse(self, r: float) -> float:
         return r ** (2 / 3)
 
+    def derivative(self, x: torch.Tensor) -> torch.Tensor:
+        return (
+            1.5
+            * torch.max(torch.zeros_like(x), x) ** 0.5
+            * torch.where(x > 0, torch.ones_like(x), torch.zeros_like(x))
+        )
+
 
 class RectifiedCubic(ActivationFunction):
     @property
@@ -73,6 +89,13 @@ class RectifiedCubic(ActivationFunction):
 
     def inverse(self, r: float) -> float:
         return r ** (1 / 3)
+
+    def derivative(self, x: torch.Tensor) -> torch.Tensor:
+        return (
+            3
+            * torch.max(torch.zeros_like(x), x) ** 2
+            * torch.where(x > 0, torch.ones_like(x), torch.zeros_like(x))
+        )
 
 
 class Cubic(ActivationFunction):
