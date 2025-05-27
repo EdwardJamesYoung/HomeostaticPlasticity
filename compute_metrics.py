@@ -221,6 +221,10 @@ def compute_population_response_metrics(
     N_I = parameters.N_I
 
     stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
+    # If the input generator has latent_stimuli_probabilities, use those instead
+    if hasattr(input_generator, "latent_stimuli_probabilities"):
+        stimuli_probabilities = input_generator.latent_stimuli_probabilities
+
     stimuli_modulation_curve = input_generator.modulation_curve  # [num_latents]
 
     argmax_rates = rates.argmax(

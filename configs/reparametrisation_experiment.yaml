@@ -1,9 +1,9 @@
-group_name: "testing_group"
+group_name: "reparametrised_warping_experiment"
 
 base_params:
-  num_latents: 20
-  N_E: 10
-  N_I: 10
+  num_latents: 200
+  N_E: 50
+  N_I: 50
   wandb_logging: True
   random_seed: 100
   feedforward_covariance_learning: False
@@ -17,18 +17,19 @@ base_params:
   tau_W: 2000.0
   tau_k: 2000.0
   zeta: 10.0
-  T: 1000.0 
+  T: 5000000.0 
   homeostasis_target: 1.0
-  homeostasis_power: 1.0
-  homeostasis: True
   activation_function_name: "rectified_quadratic"
-  dynamics_log_time: 100.0
-  mode_log_time: 100.0
+  dynamics_log_time: 1000.0
+  mode_log_time: 1000.0
   rate_computation_threshold: 0.0001
   rate_computation_iterations: 10000
   k_I: 25.0
 
+
 param_grid:
+  homeostasis: [True, False]
+  homeostasis_power: [1.0, 2.0]
 
   input_config:
     - type: "reparametrised_circular" 
