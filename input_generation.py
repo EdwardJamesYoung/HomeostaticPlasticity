@@ -575,6 +575,7 @@ class ReparametrisedCircularGenerator(DiscreteGenerator, PiecewiseConstantGenera
         stimuli_probabilities = torch.ones(
             self.num_latents, device=self.device, dtype=self.dtype
         )
+        stimuli_probabilities /= stimuli_probabilities.sum()  # [num_latents]
 
         # Also set the latent stimuli probabilities
         latent_stimuli_probabilities = self.mixing_parameter * torch.exp(

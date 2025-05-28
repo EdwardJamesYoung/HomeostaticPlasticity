@@ -21,13 +21,23 @@ def visualise_weights(
     axs[0].set_xlabel("Input space")
     axs[0].set_ylabel("Weight value")
 
+    # Find the argmax stimulus for each neuron and plot mean weights at those positions
+    argmax_stimuli = torch.argmax(W, dim=1).detach().cpu().numpy()  # [N_I]
+
     # Loop over inhibitory neurons N_I
     for i_idx in range(W.shape[0]):
         # Plot the weights of the i_idx-th inhibitory neuron
-        axs[0].plot(W[i_idx, :].detach().cpu().numpy())
+        # Get the color for this neuron from the default color cycle
+        prop_cycle = plt.rcParams["axes.prop_cycle"]
+        colors = prop_cycle.by_key()["color"]
+        color = colors[i_idx % len(colors)]
 
-    # Find the argmax stimulus for each neuron
-    argmax_stimuli = torch.argmax(W, dim=1).detach().cpu().numpy()  # [N_I]
+        axs[0].plot(W[i_idx, :].detach().cpu().numpy(), color=color)
+
+        mean_weight = W[i_idx, :].mean().detach().cpu().numpy()
+
+        color = colors[i_idx % len(colors)]
+        axs[0].scatter(argmax_stimuli[i_idx], mean_weight, color=color, zorder=3)
 
     # Sort neurons by their argmax stimuli
     sorted_indices = np.argsort(argmax_stimuli)
