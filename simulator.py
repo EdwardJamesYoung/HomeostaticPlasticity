@@ -10,6 +10,7 @@ from compute_metrics import (
     compute_discrepancies,
     dynamics_log,
     compute_firing_rates,
+    compute_regressions,
     compute_firing_rates_newton,
     compute_firing_rates_momentum,
 )
@@ -154,7 +155,6 @@ def run_simulation(
                 W=W, M=M, input_generator=input_generator, parameters=parameters
             )
             log_dict.update(compute_discrepancies(population_response_metrics))
-
             # log_dict.update(rate_mode_log(population_response_metrics, parameters))
 
         if wandb_logging and ii % int(dynamics_log_time / dt) == 0:
@@ -362,6 +362,7 @@ def deterministic_simulation(
                 rates=r, input_generator=input_generator, parameters=parameters
             )
             log_dict.update(compute_discrepancies(population_response_metrics))
+            log_dict.update(compute_regressions(population_response_metrics))
 
             # log_dict.update(rate_mode_log(population_response_metrics, parameters))
 

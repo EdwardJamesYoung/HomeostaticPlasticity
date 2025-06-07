@@ -1,39 +1,41 @@
-group_name: "testing_group"
+group_name: "big_covariance_test"
 
 base_params:
-  num_latents: 20
-  N_E: 10
-  N_I: 10
+  num_latents: 200
+  N_E: 50
   wandb_logging: True
-  random_seed: 100
-  feedforward_covariance_learning: False
-  recurrent_covariance_learning: False
+  feedforward_covariance_learning: True
+  recurrent_covariance_learning: True
   feedforward_voltage_learning: False
   recurrent_voltage_learning: False
   initial_feedforward_weight_scaling: 1.0
+  random_seed: 42
   dt: 0.01
   tau_u: 50.0
   tau_M: 1000.0
   tau_W: 2000.0
-  tau_k: 2000.0
+  tau_k: 4000.0
   zeta: 10.0
-  T: 5000.0 
+  T: 10000000.0 
   homeostasis_target: 1.0
   homeostasis_power: 1.0
-  homeostasis: True
   activation_function_name: "rectified_quadratic"
-  dynamics_log_time: 100.0
-  mode_log_time: 100.0
+  dynamics_log_time: 1000.0
+  mode_log_time: 1000.0
   rate_computation_threshold: 0.0001
   rate_computation_iterations: 10000
   k_I: 25.0
 
+
 param_grid:
+  homeostasis: [True, False]
+  activation_function_name: ["rectified_quadratic", "rectified_linear"]
+  N_I: [25, 50, 100]
 
   input_config:
     - type: "modulated_circular" 
       param_grid:  
-        mixing_parameter: [0.2]
+        mixing_parameter: [0.2, 0.4, 0.6]
         vm_concentration: [1.0]
         density_location: [0.0]
-        tuning_width: [0.25] 
+        tuning_width: [0.25, 0.5] 

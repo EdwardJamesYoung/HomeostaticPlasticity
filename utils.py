@@ -4,6 +4,7 @@ import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 import scipy.stats as stats
+from typing import Tuple
 
 
 @jaxtyped(typechecker=typechecked)
@@ -22,6 +23,53 @@ def circular_discrepancy(
     # Integrate over [-\pi,\pi)
     discrepancy = np.sum(diff) * (2 * np.pi / len(diff))
     return discrepancy
+
+
+@jaxtyped(typechecker=typechecked)
+def power_law_regression(
+    x: Float[np.ndarray, "num_latents"],
+    y: Float[np.ndarray, "num_latents"],
+    epsilon: float = 1e-10,
+) -> Tuple[float, float]:
+    """
+    Performs log-log regression to test for power-law relationship y proportional to x to the gamma.
+
+    Args:
+        x: Independent variable (e.g., probabilities p)
+        y: Dependent variable (e.g., density d)
+        epsilon: Small value added before taking logs to avoid numerical issues
+
+    Returns:
+        gamma: Power-law exponent (slope in log-log space)
+        r_squared: Coefficient of determination (R²)
+    """
+    # Add epsilon and take logs
+    log_x = np.log(x + epsilon)
+    log_y = np.log(y + epsilon)
+
+    # Compute means
+    mean_log_x = np.mean(log_x)
+    mean_log_y = np.mean(log_y)
+
+    # Compute covariance and variance
+    cov_xy = np.mean((log_x - mean_log_x) * (log_y - mean_log_y))
+    var_x = np.mean((log_x - mean_log_x) ** 2)
+
+    # Compute slope (gamma) and intercept
+    gamma = cov_xy / (var_x + epsilon)  # Add epsilon to prevent division by zero
+    intercept = mean_log_y - gamma * mean_log_x
+
+    # Compute predicted values
+    log_y_pred = gamma * log_x + intercept
+
+    # Compute R-squared
+    ss_res = np.sum((log_y - log_y_pred) ** 2)
+    ss_tot = np.sum((log_y - mean_log_y) ** 2)
+    r_squared = 1 - (
+        ss_res / (ss_tot + epsilon)
+    )  # Add epsilon to prevent division by zero
+
+    return float(gamma), float(r_squared)
 
 
 @jaxtyped(typechecker=typechecked)

@@ -18,6 +18,7 @@ from utils import (
     circular_smooth_values,
     circular_smooth_median,
     circular_smooth_huber,
+    power_law_regression,
 )
 from scipy.interpolate import interp1d
 
@@ -348,6 +349,55 @@ def compute_discrepancies(
             )
 
     return discrepancies
+
+
+@jaxtyped(typechecker=typechecked)
+def compute_regressions(
+    population_response_metrics: dict[str, Any],
+) -> dict[str, float]:
+
+    stable_curves_keys = [
+        "c",
+        "i",
+        "p",
+    ]
+
+    non_stable_curves_keys = {
+        "r",
+        "g",
+        "d",
+        "c",
+    }
+
+    # Extract the curves from the population_response_metrics dictionary
+    stable_curves = {
+        key: population_response_metrics[key] for key in stable_curves_keys
+    }
+    non_stable_curves = {
+        key: population_response_metrics[key] for key in non_stable_curves_keys
+    }
+
+    # Compute the discrepancies between stable curves and non-stable curves
+    regression_stats = {}
+
+    # Loop through each stable curve
+    for stable_curve_name, stable_curve in stable_curves.items():
+        # Compare with each non-stable curve
+        for non_stable_curve_name, non_stable_curve in non_stable_curves.items():
+            # Compute the circular discrepancy between the two curves
+            gamma, r_squared = power_law_regression(
+                stable_curve,
+                non_stable_curve,
+            )
+            # Store the discrepancy in the dictionary
+            regression_stats[
+                f"reg/gamma({stable_curve_name},{non_stable_curve_name})"
+            ] = gamma
+            regression_stats[
+                f"reg/r_squared({stable_curve_name},{non_stable_curve_name})"
+            ] = r_squared
+
+    return regression_stats
 
 
 @jaxtyped(typechecker=typechecked)
