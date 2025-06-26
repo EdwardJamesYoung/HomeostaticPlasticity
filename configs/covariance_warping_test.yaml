@@ -30,7 +30,7 @@ base_params:
 
 
 param_grid:
-  homeostasis_power: [1.5, 2.0, 2.5, 3.0]
+  random_seed: [42, 84]
 
   input_config:
     - type: "modulated_circular" 
