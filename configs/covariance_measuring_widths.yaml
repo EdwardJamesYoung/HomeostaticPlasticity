@@ -30,6 +30,7 @@ base_params:
 
 param_grid:
   homeostasis: [True, False]
+  N_I: [10, 20, 30]
 
   input_config:
     - type: "modulated_circular" 
