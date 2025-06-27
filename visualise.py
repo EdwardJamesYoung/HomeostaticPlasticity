@@ -70,6 +70,7 @@ def visualise_tuning_curves(
     gains = population_response_metrics["g"]
     density = population_response_metrics["d"]
     total_rate = population_response_metrics["r"]
+    widths = population_response_metrics["w"]
     probabilities = population_response_metrics["p"]
     gain_prediction = population_response_metrics["p^{-1/alpha}"]
     stimulus_space = population_response_metrics["stimulus_space"]
@@ -101,6 +102,13 @@ def visualise_tuning_curves(
         density,
         label="d",
         color="red",
+    )
+
+    axs[0].plot(
+        stimulus_space,
+        widths,
+        label="w",
+        color="purple",
     )
 
     axs[0].legend()

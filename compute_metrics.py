@@ -211,6 +211,55 @@ def compute_firing_rates_newton(
     return r, v
 
 
+@jaxtyped(typechecker=typechecked)
+def compute_tuning_curve_widths(
+    rates: Float[torch.Tensor, "N_I num_stimuli"],
+    stimulus_space: Float[torch.Tensor, "num_stimuli"],
+) -> Float[torch.Tensor, "N_I"]:
+    """
+    Compute the width of tuning curves using circular standard deviation.
+
+    Args:
+        rates: Tuning curve responses with shape [N_I, num_stimuli]
+               where rates[i, j] is the response of neuron i to stimulus j
+
+    Returns:
+        widths: Standard deviation-based width for each neuron [N_I]
+    """
+    # Normalize each tuning curve to create probability distributions
+    # Subtract minimum and ensure non-negative
+    rates_shifted = rates - rates.min(dim=1, keepdim=True)[0]  # [N_I, num_stimuli]
+
+    # Handle edge case where tuning curve is constant (extremely unlikely)
+    curve_sums = rates_shifted.sum(dim=1, keepdim=True)  # [N_I, 1]
+    curve_sums = torch.where(curve_sums == 0, torch.ones_like(curve_sums), curve_sums)
+
+    # Normalize to probability distribution
+    p = rates_shifted / curve_sums  # [N_I, num_stimuli]
+
+    # Compute circular mean resultant vector for each neuron
+    # R = |sum(p[i] * exp(i * θ[i]))|
+    cos_component = torch.sum(p * torch.cos(stimulus_space), dim=1)  # [N_I]
+    sin_component = torch.sum(p * torch.sin(stimulus_space), dim=1)  # [N_I]
+
+    # Magnitude of resultant vector
+    R = torch.sqrt(cos_component**2 + sin_component**2)  # [N_I]
+
+    # Circular variance: σ² = -2 * log(R)
+    epsilon = 1e-8
+    R_clamped = torch.clamp(R, min=epsilon, max=1.0)
+    circular_variance = -2 * torch.log(R_clamped)  # [N_I]
+
+    # Circular standard deviation
+    circular_std = torch.sqrt(circular_variance)  # [N_I]
+
+    # Convert to width measure (you can adjust this multiplier as needed)
+    # Factor of 2 gives full width, similar to 2*sigma for Gaussian
+    widths = 2 * circular_std
+
+    return widths
+
+
 def compute_population_response_metrics(
     rates: Float[torch.Tensor, "N_I num_latents"],
     input_generator: ModulatedCircularGenerator,
@@ -250,6 +299,18 @@ def compute_population_response_metrics(
         delta=0.25 * max_rate_range.item(),
     )  # [num_latents]
 
+    # Find the width at half height of the tuning curve
+    tuning_curve_widths = compute_tuning_curve_widths(rates, stimulus_space)  # [N_I]
+    width_range = tuning_curve_widths.max() - tuning_curve_widths.min()
+
+    widths = circular_smooth_huber(
+        argmax_stimuli,
+        tuning_curve_widths,
+        stimulus_space,
+        bw=bw_multiplier * 0.4,
+        delta=0.25 * width_range.item(),
+    )
+
     density = circular_kde(
         argmax_stimuli, stimulus_space, bw=bw_multiplier * 0.2
     )  # [num_latents]
@@ -272,6 +333,7 @@ def compute_population_response_metrics(
         "r": total_rate,
         "d": density,
         "g": gains,
+        "w": widths,
         "g d": density * gains,
         "g^2 d": density * (gains**2),
     }
@@ -367,6 +429,7 @@ def compute_regressions(
         "g",
         "d",
         "c",
+        "w",
     }
 
     # Extract the curves from the population_response_metrics dictionary
