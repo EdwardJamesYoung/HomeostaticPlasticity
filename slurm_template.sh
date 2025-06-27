@@ -27,7 +27,7 @@
 #SBATCH --ntasks-per-node=1
 #!
 #! How much wallclock time will be required? (format: hh:mm:ss)
-#SBATCH --time=2:00:00 
+#SBATCH --time=5:00:00 
 #!
 #! What types of email messages do you wish to receive?
 #SBATCH --mail-type=END,FAIL 
