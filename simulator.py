@@ -18,8 +18,8 @@ from compute_metrics import (
 
 @jaxtyped(typechecker=typechecked)
 def run_simulation(
-    initial_W: Float[torch.Tensor, "N_I N_E"],
-    initial_M: Float[torch.Tensor, "N_I N_I"],
+    initial_W: Float[torch.Tensor, "batch N_I N_E"],
+    initial_M: Float[torch.Tensor, "batch N_I N_I"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
 ):
@@ -197,8 +197,8 @@ def run_simulation(
 
 @jaxtyped(typechecker=typechecked)
 def deterministic_simulation(
-    initial_W: Float[torch.Tensor, "N_I N_E"],
-    initial_M: Float[torch.Tensor, "N_I N_I"],
+    initial_W: Float[torch.Tensor, "batch N_I N_E"],
+    initial_M: Float[torch.Tensor, "batch N_I N_I"],
     input_generator: DiscreteGenerator,
     parameters: SimulationParameters,
 ):
@@ -217,6 +217,7 @@ def deterministic_simulation(
         _type_: _description_
     """
     # Unpack from parameters
+    batch_size = parameters.batch_size
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
@@ -247,14 +248,16 @@ def deterministic_simulation(
 
     # Verify that the input feedforward weights has the correct shape
     assert initial_W.shape == (
+        batch_size,
         N_I,
         N_E,
-    ), f"Initial feedforward weight matrix has wrong shape. Expected {(N_I, N_E)}, got {initial_W.shape}"
+    ), f"Initial feedforward weight matrix has wrong shape. Expected {(batch_size, N_I, N_E)}, got {initial_W.shape}"
     # Verify that the initial recurrent weights has the correct shape
     assert initial_M.shape == (
+        batch_size,
         N_I,
         N_I,
-    ), f"Initial recurrent weight matrix has wrong shape. Expected {(N_I, N_I)}, got {initial_M.shape}"
+    ), f"Initial recurrent weight matrix has wrong shape. Expected {(batch_size, N_I, N_I)}, got {initial_M.shape}"
     # Verify that the initial recurrent weight matrix is non-negative
     assert torch.all(
         initial_M >= 0
@@ -269,9 +272,9 @@ def deterministic_simulation(
     M = M.to(device)
 
     # Initialize k_E, W_norm, and M_norm
-    k_E = torch.sum(torch.abs(W), dim=1)
-    W_norm = torch.sum(torch.abs(W), dim=1)
-    M_norm = torch.sum(M, dim=1)
+    k_E = torch.sum(torch.abs(W), dim=-1)  # [batch_size, N_I]
+    W_norm = torch.sum(torch.abs(W), dim=-1)  # [batch_size, N_I]
+    M_norm = torch.sum(M, dim=-1)  # [batch_size, N_I]
 
     # Initialise the input, firing rates, and mean-firing rate
     stimuli = input_generator.stimuli_patterns  # [N_E, num_latents]
@@ -289,7 +292,7 @@ def deterministic_simulation(
     for ii in range(total_update_steps):
         r, v = compute_firing_rates(
             W, M, stimuli, parameters, v_init=v
-        )  # [N_I, num_latents]
+        )  # [batch, N_I, num_latents]
 
         if feedforward_voltage_learning:
             feedforward_learning_variable = v
@@ -298,8 +301,8 @@ def deterministic_simulation(
 
         if feedforward_covariance_learning:
             feedforward_learning_signal = feedforward_learning_variable - torch.sum(
-                feedforward_learning_variable * probabilities, dim=1
-            ).unsqueeze(1)
+                feedforward_learning_variable * probabilities, dim=-1
+            ).unsqueeze(-1)
         else:
             feedforward_learning_signal = feedforward_learning_variable
 
@@ -310,21 +313,23 @@ def deterministic_simulation(
 
         if recurrent_covariance_learning:
             recurrent_learning_signal = recurrent_learning_variable - torch.sum(
-                recurrent_learning_variable * probabilities, dim=1
-            ).unsqueeze(1)
+                recurrent_learning_variable * probabilities, dim=-1
+            ).unsqueeze(-1)
         else:
             recurrent_learning_signal = recurrent_learning_variable
 
         dW = torch.einsum(
-            "ij,j,kj->ik", feedforward_learning_signal, probabilities, stimuli
-        )  # [N_I, N_E]
+            "bij,j,kj->bik", feedforward_learning_signal, probabilities, stimuli
+        )  # [batch, N_I, N_E]
 
-        dM = torch.einsum("ij,j,kj->ik", recurrent_learning_signal, probabilities, r)
+        dM = torch.einsum(
+            "bij,j,bkj->bik", recurrent_learning_signal, probabilities, r
+        )  # [batch, N_I, N_I]
 
         # Update the excitatory mass
         if homeostasis:
             homeostatic_quantity = torch.einsum(
-                "ij,j->i", r**homeostasis_power, probabilities
+                "bij,j->bi", r**homeostasis_power, probabilities
             )
             ratio = homeostatic_quantity / homeostasis_target
 
@@ -335,24 +340,26 @@ def deterministic_simulation(
             new_k_E = k_E
 
         # Update the norms of the weight matrices:
-        W_norm = (1 - zeta * W_lr) * W_norm + (zeta * W_lr) * new_k_E
-        M_norm = (1 - alpha * M_lr) * M_norm + (alpha * M_lr) * k_I
+        W_norm = (1 - zeta * W_lr) * W_norm + (zeta * W_lr) * new_k_E  # [batch, N_I]
+        M_norm = (1 - alpha * M_lr) * M_norm + (alpha * M_lr) * k_I  # [batch, N_I]
 
         # Update the weight matrices:
-        new_W = W + W_lr * dW  # [N_I, N_E]
-        new_M = M + M_lr * dM  # [N_I, N_I]
+        new_W = W + W_lr * dW  # [batch, N_I, N_E]
+        new_M = M + M_lr * dM  # [batch, N_I, N_I]
 
         # Rectify all the weights:
-        new_M = torch.clamp(new_M, min=1e-16)  # [N_I, N_I]
-        new_W = torch.clamp(new_W, min=1e-16)  # [N_I, N_E]
+        new_M = torch.clamp(new_M, min=1e-16)  # [batch, N_I, N_I]
+        new_W = torch.clamp(new_W, min=1e-16)  # [batch, N_I, N_E]
 
         # Renormalize the weight matrices
-        new_W = (
-            torch.diag(W_norm / (torch.sum(torch.abs(new_W), dim=1) + 1e-12)) @ new_W
-        )  # [N_I, N_E]
-        new_M = (
-            torch.diag(M_norm / (torch.sum(new_M, dim=1) + 1e-12)) @ new_M
-        )  # [N_I, N_I]
+        new_W = torch.einsum(
+            "bi,bie -> bie",
+            W_norm / (torch.sum(torch.abs(new_W), dim=-1) + 1e-12),
+            new_W,
+        )  # [batch, N_I, N_E]
+        new_M = torch.einsum(
+            "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
+        )  # [batch, N_I, N_I]
 
         # It's logging time!
         log_dict = {}
@@ -497,10 +504,11 @@ def deterministic_simulation(
 
 @jaxtyped(typechecker=typechecked)
 def generate_initial_weights(parameters: SimulationParameters) -> tuple[
-    Float[torch.Tensor, "N_I N_E"],
-    Float[torch.Tensor, "N_I N_I"],
+    Float[torch.Tensor, "batch N_I N_E"],
+    Float[torch.Tensor, "batch N_I N_I"],
 ]:
     # Unpack parameters
+    batch_size = parameters.batch_size
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
@@ -529,17 +537,17 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     k_E = initial_feedforward_weight_scaling * k_E
 
     # Draw an input weight matrix at random
-    initial_W = torch.randn(N_I, N_E, device=device, dtype=dtype)
+    initial_W = torch.randn(batch_size, N_I, N_E, device=device, dtype=dtype)
 
     # Normalise the sum of each row to be k_E
-    initial_W = k_E * initial_W / torch.sum(torch.abs(initial_W), dim=1, keepdim=True)
+    initial_W = k_E * initial_W / torch.sum(torch.abs(initial_W), dim=-1, keepdim=True)
 
     # Construct M to be strongly diagonal
-    initial_M = torch.rand(N_I, N_I, device=device, dtype=dtype) + (
+    initial_M = torch.rand(batch_size, N_I, N_I, device=device, dtype=dtype) + (
         N_I / 2
-    ) * torch.eye(N_I, device=device, dtype=dtype)
+    ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(batch_size, 1, 1)
     # Renormalise M
-    initial_M = k_I * initial_M / torch.sum(initial_M, dim=1, keepdim=True)
+    initial_M = k_I * initial_M / torch.sum(initial_M, dim=-1, keepdim=True)
 
     return initial_W, initial_M
 

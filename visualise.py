@@ -11,9 +11,12 @@ import matplotlib.pyplot as plt
 
 
 def visualise_weights(
-    W: Float[torch.Tensor, "N_I N_E"], M: Float[torch.Tensor, "N_I N_I"]
+    W: Float[torch.Tensor, "batch N_I N_E"], M: Float[torch.Tensor, "batch N_I N_I"]
 ):
     r"""Takes a feedforward weight matrix and visualises the weights as curves over the input space."""
+
+    W_smp = W[0, :, :]  # [N_I, N_E]
+    M_smp = M[0, :, :]  # [N_I, N_I]
 
     # Create a new figure
     fig, axs = plt.subplots(1, 2, figsize=(14, 7))
@@ -22,19 +25,19 @@ def visualise_weights(
     axs[0].set_ylabel("Weight value")
 
     # Find the argmax stimulus for each neuron and plot mean weights at those positions
-    argmax_stimuli = torch.argmax(W, dim=1).detach().cpu().numpy()  # [N_I]
+    argmax_stimuli = torch.argmax(W_smp, dim=-1).detach().cpu().numpy()  # [N_I]
 
     # Loop over inhibitory neurons N_I
-    for i_idx in range(W.shape[0]):
+    for i_idx in range(W_smp.shape[0]):
         # Plot the weights of the i_idx-th inhibitory neuron
         # Get the color for this neuron from the default color cycle
         prop_cycle = plt.rcParams["axes.prop_cycle"]
         colors = prop_cycle.by_key()["color"]
         color = colors[i_idx % len(colors)]
 
-        axs[0].plot(W[i_idx, :].detach().cpu().numpy(), color=color)
+        axs[0].plot(W_smp[i_idx, :].detach().cpu().numpy(), color=color)
 
-        mean_weight = W[i_idx, :].mean().detach().cpu().numpy()
+        mean_weight = W_smp[i_idx, :].mean().detach().cpu().numpy()
 
         color = colors[i_idx % len(colors)]
         axs[0].scatter(argmax_stimuli[i_idx], mean_weight, color=color, zorder=3)
@@ -43,7 +46,7 @@ def visualise_weights(
     sorted_indices = np.argsort(argmax_stimuli)
 
     # Reshuffle M according to the sorted ordering
-    M_sorted = M[sorted_indices, :][:, sorted_indices].detach().cpu().numpy()
+    M_sorted = M_smp[sorted_indices, :][:, sorted_indices].detach().cpu().numpy()
 
     # Plot the recurrent weights
     axs[1].set_title("Recurrent weights (sorted by preferred input)")
@@ -62,9 +65,9 @@ def visualise_tuning_curves(
 ):
     r"""Takes a feedforward weight matrix and a recurrent weight matrix and visualises the tuning curves of the neurons."""
 
-    rates = population_response_metrics["rates"]  # [N_E, num_latents]
-    argmax_stimuli = population_response_metrics["argmax_stimuli"]
-    average_rates = population_response_metrics["average_rates"]
+    rates = population_response_metrics["rates"]  # [batch, N_I, num_latents]
+    argmax_stimuli = population_response_metrics["argmax_stimuli"]  # [batch, N_I]
+    average_rates = population_response_metrics["average_rates"]  # [batch, N_I]
 
     # Things that actually exist
     gains = population_response_metrics["g"]
@@ -121,14 +124,23 @@ def visualise_tuning_curves(
     prop_cycle = plt.rcParams["axes.prop_cycle"]
     colors = prop_cycle.by_key()["color"]
 
-    for i_idx in range(rates.shape[0]):
+    # rates has shape [batch, N_I, num_latents]
+    # We want to flatten it to [batch * N_I, num_latents]
+    flattened_rates = rates.reshape(-1, rates.shape[-1])  # [batch * N_I, num_latents]
+    flattened_argmax_stimuli = argmax_stimuli.reshape(-1)  # [batch * N_I]
+    flattened_average_rates = average_rates.reshape(-1)  # [batch * N_I]
+    print(
+        f"{flattened_rates.shape=}, {flattened_argmax_stimuli.shape=}, {flattened_average_rates.shape=}"
+    )
+
+    for i_idx in range(flattened_rates.shape[0]):
         # Use the same color for both the line and its corresponding scatter point
         (line,) = axs[1].plot(
-            stimulus_space, rates[i_idx, :], color=colors[i_idx % len(colors)]
+            stimulus_space, flattened_rates[i_idx, :], color=colors[i_idx % len(colors)]
         )
         axs[1].scatter(
-            argmax_stimuli[i_idx],
-            average_rates[i_idx],
+            flattened_argmax_stimuli[i_idx],
+            flattened_average_rates[i_idx],
             color=line.get_color(),
             zorder=3,
         )

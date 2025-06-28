@@ -32,13 +32,14 @@ def renormalise(
 
 @jaxtyped(typechecker=typechecked)
 def compute_firing_rates(
-    W: Float[torch.Tensor, "N_I N_E"],
-    M: Float[torch.Tensor, "N_I N_I"],
+    W: Float[torch.Tensor, "batch N_I N_E"],
+    M: Float[torch.Tensor, "batch N_I N_I"],
     u: Float[torch.Tensor, "N_E num_stimuli"],
     parameters: SimulationParameters,
-    v_init: Optional[Float[torch.Tensor, "N_I num_stimuli"]] = None,
+    v_init: Optional[Float[torch.Tensor, "batch N_I num_stimuli"]] = None,
 ) -> tuple[
-    Float[torch.Tensor, "N_I num_stimuli"], Float[torch.Tensor, "N_I num_stimuli"]
+    Float[torch.Tensor, "batch N_I num_stimuli"],
+    Float[torch.Tensor, "batch N_I num_stimuli"],
 ]:
     """
     Compute the firing rates of a neural network given the input and weight matrices.
@@ -60,7 +61,7 @@ def compute_firing_rates(
     max_iter = parameters.rate_computation_iterations
 
     # Initialise the input h and the voltage v
-    h = W @ u
+    h = torch.einsum("bie,es->bis", W, u)  # [batch, N_I, num_stimuli]
     if v_init is not None:
         v = v_init
     else:
@@ -70,7 +71,10 @@ def compute_firing_rates(
     counter = 0
     # Iterate until the rates have converged
     while r_dot > threshold and counter < max_iter:
-        v = v + (dt / tau_v) * (h - M @ r - v)
+        inhibitory_term = torch.einsum(
+            "bij,bjs->bis", M, r
+        )  # [batch, N_I, num_stimuli]
+        v = v + (dt / tau_v) * (h - inhibitory_term - v)
         r_new = activation_function(v)
         r_dot = torch.mean(torch.abs(r_new - r)) / dt
         r = r_new
@@ -86,6 +90,7 @@ def compute_firing_rates(
     return r, v
 
 
+# DEPRECIATED.
 @jaxtyped(typechecker=typechecked)
 def compute_firing_rates_momentum(
     W: Float[torch.Tensor, "N_I N_E"],
@@ -155,6 +160,7 @@ def compute_firing_rates_momentum(
     return r, v
 
 
+# DEPRECIATED
 @jaxtyped(typechecker=typechecked)
 def compute_firing_rates_newton(
     W: Float[torch.Tensor, "N_I N_E"],
@@ -213,45 +219,48 @@ def compute_firing_rates_newton(
 
 @jaxtyped(typechecker=typechecked)
 def compute_tuning_curve_widths(
-    rates: Float[torch.Tensor, "N_I num_stimuli"],
+    rates: Float[torch.Tensor, "batch N_I num_stimuli"],
     stimulus_space: Float[torch.Tensor, "num_stimuli"],
-) -> Float[torch.Tensor, "N_I"]:
+) -> Float[torch.Tensor, "batch N_I"]:
     """
     Compute the width of tuning curves using circular standard deviation.
 
     Args:
-        rates: Tuning curve responses with shape [N_I, num_stimuli]
-               where rates[i, j] is the response of neuron i to stimulus j
+        rates: Tuning curve responses with shape [batch, N_I, num_stimuli]
+               where rates[b, i, j] is the response of neuron i to stimulus j in batch b
+        stimulus_space: Stimulus positions with shape [num_stimuli]
 
     Returns:
-        widths: Standard deviation-based width for each neuron [N_I]
+        widths: Standard deviation-based width for each neuron [batch, N_I]
     """
     # Normalize each tuning curve to create probability distributions
     # Subtract minimum and ensure non-negative
-    rates_shifted = rates - rates.min(dim=1, keepdim=True)[0]  # [N_I, num_stimuli]
+    rates_shifted = (
+        rates - rates.min(dim=-1, keepdim=True)[0]
+    )  # [batch, N_I, num_stimuli]
 
     # Handle edge case where tuning curve is constant (extremely unlikely)
-    curve_sums = rates_shifted.sum(dim=1, keepdim=True)  # [N_I, 1]
+    curve_sums = rates_shifted.sum(dim=-1, keepdim=True)  # [batch, N_I, 1]
     curve_sums = torch.where(curve_sums == 0, torch.ones_like(curve_sums), curve_sums)
 
     # Normalize to probability distribution
-    p = rates_shifted / curve_sums  # [N_I, num_stimuli]
+    p = rates_shifted / curve_sums  # [batch, N_I, num_stimuli]
 
     # Compute circular mean resultant vector for each neuron
     # R = |sum(p[i] * exp(i * θ[i]))|
-    cos_component = torch.sum(p * torch.cos(stimulus_space), dim=1)  # [N_I]
-    sin_component = torch.sum(p * torch.sin(stimulus_space), dim=1)  # [N_I]
+    cos_component = torch.sum(p * torch.cos(stimulus_space), dim=-1)  # [batch, N_I]
+    sin_component = torch.sum(p * torch.sin(stimulus_space), dim=-1)  # [batch, N_I]
 
     # Magnitude of resultant vector
-    R = torch.sqrt(cos_component**2 + sin_component**2)  # [N_I]
+    R = torch.sqrt(cos_component**2 + sin_component**2)  # [batch, N_I]
 
     # Circular variance: σ² = -2 * log(R)
     epsilon = 1e-8
     R_clamped = torch.clamp(R, min=epsilon, max=1.0)
-    circular_variance = -2 * torch.log(R_clamped)  # [N_I]
+    circular_variance = -2 * torch.log(R_clamped)  # [batch, N_I]
 
     # Circular standard deviation
-    circular_std = torch.sqrt(circular_variance)  # [N_I]
+    circular_std = torch.sqrt(circular_variance)  # [batch, N_I]
 
     # Convert to width measure (you can adjust this multiplier as needed)
     # Factor of 2 gives full width, similar to 2*sigma for Gaussian
@@ -261,12 +270,13 @@ def compute_tuning_curve_widths(
 
 
 def compute_population_response_metrics(
-    rates: Float[torch.Tensor, "N_I num_latents"],
+    rates: Float[torch.Tensor, "batch N_I num_latents"],
     input_generator: ModulatedCircularGenerator,
     parameters: SimulationParameters,
 ) -> dict[str, Any]:
-    r"""For consistency, everything here is going to be in torch. Then we'll convert when we return."""
+    r"""For consistency, everything here is going to be in torch. Then we'll convert to numpy when we return."""
 
+    batch_size = parameters.batch_size
     N_E = parameters.N_E
     N_I = parameters.N_I
 
@@ -278,41 +288,43 @@ def compute_population_response_metrics(
     stimuli_modulation_curve = input_generator.modulation_curve  # [num_latents]
 
     argmax_rates = rates.argmax(
-        axis=1
-    )  # [N_I] (indices of max response in num_latents)
+        axis=-1
+    )  # [batch, N_I] (indices of max response in num_latents)
     stimulus_space = input_generator.stimuli_positions.squeeze()  # [num_latents]
     argmax_stimuli = stimulus_space[
         argmax_rates
-    ].flatten()  # [N_I] (stimuli of max response)
-    max_rates, _ = rates.max(axis=1)  # [N_I]
+    ].flatten()  # [batch, N_I] (stimuli of max response)
+    max_rates, _ = rates.max(axis=-1)  # [batch, N_I]
 
-    total_rate = rates.sum(axis=0)  # [num_latents]
+    total_rate = rates.sum(dim=(0, 1))  # [num_latents]
 
-    bw_multiplier = N_I ** (-0.2)
+    bw_multiplier = (batch_size * N_I) ** (-0.2)
     max_rate_range = max_rates.max() - max_rates.min()
 
     gains = circular_smooth_huber(
-        argmax_stimuli,
-        max_rates,
+        argmax_stimuli.flatten(),
+        max_rates.flatten(),
         stimulus_space,
         bw=bw_multiplier * 0.4,
         delta=0.25 * max_rate_range.item(),
     )  # [num_latents]
 
     # Find the width at half height of the tuning curve
-    tuning_curve_widths = compute_tuning_curve_widths(rates, stimulus_space)  # [N_I]
+    tuning_curve_widths = compute_tuning_curve_widths(
+        rates, stimulus_space
+    )  # [batch, N_I]
     width_range = tuning_curve_widths.max() - tuning_curve_widths.min()
 
     widths = circular_smooth_huber(
-        argmax_stimuli,
-        tuning_curve_widths,
+        argmax_stimuli.flatten(),
+        tuning_curve_widths.flatten(),
         stimulus_space,
         bw=bw_multiplier * 0.4,
         delta=0.25 * width_range.item(),
     )
 
     density = circular_kde(
-        argmax_stimuli, stimulus_space, bw=bw_multiplier * 0.2
+        argmax_stimuli.flatten(), stimulus_space, bw=bw_multiplier * 0.2
     )  # [num_latents]
 
     population_response_metrics = {
@@ -348,8 +360,8 @@ def compute_population_response_metrics(
             "rates": rates,
             "argmax_stimuli": argmax_stimuli,
             "average_rates": torch.einsum(
-                "ij,j->i", rates, stimuli_probabilities
-            ),  # [N_I]
+                "bij,j->bi", rates, stimuli_probabilities
+            ),  # [batch, N_I]
             "stimulus_space": stimulus_space,
         }
     )
@@ -465,31 +477,36 @@ def compute_regressions(
 
 @jaxtyped(typechecker=typechecked)
 def dynamics_log(
-    dW: Float[torch.Tensor, "N_I N_E"],
-    dM: Float[torch.Tensor, "N_I N_I"],
-    k_E: Float[torch.Tensor, "N_I"],
-    new_k_E: Float[torch.Tensor, "N_I"],
-    r: Float[torch.Tensor, "N_I num_latents"],
+    dW: Float[torch.Tensor, "batch N_I N_E"],
+    dM: Float[torch.Tensor, "batch N_I N_I"],
+    k_E: Float[torch.Tensor, "batch N_I"],
+    new_k_E: Float[torch.Tensor, "batch N_I"],
+    r: Float[torch.Tensor, "batch N_I num_latents"],
     probabilities: Float[torch.Tensor, "num_latents"],
     parameters: SimulationParameters,
     iteration_step: int,
 ) -> dict[str, Any]:
+    batch_size = parameters.batch_size
     N_E = parameters.N_E
     N_I = parameters.N_I
     dt = parameters.dt
 
-    recurrent_update_magnitude = torch.sum(torch.abs(dM)).item() / (N_I * N_I * dt)
-    feedforward_update_magnitude = torch.sum(torch.abs(dW)).item() / (N_E * N_I * dt)
-    excitatory_mass_update_magnitude = torch.sum(torch.abs(new_k_E - k_E)).item() / (
-        N_I * dt
+    recurrent_update_magnitude = torch.sum(torch.abs(dM)).item() / (
+        batch_size * N_I * N_I * dt
     )
-    avg_rates = torch.einsum("ij,j->i", r, probabilities)  # [N_I]
-    centred_r = r - avg_rates.unsqueeze(-1)  # [N_I, num_latents]
+    feedforward_update_magnitude = torch.sum(torch.abs(dW)).item() / (
+        batch_size * N_E * N_I * dt
+    )
+    excitatory_mass_update_magnitude = torch.sum(torch.abs(new_k_E - k_E)).item() / (
+        batch_size * N_I * dt
+    )
+    avg_rates = torch.einsum("bij,j->bi", r, probabilities)  # [batch, N_I]
+    centred_r = r - avg_rates.unsqueeze(-1)  # [batch, N_I, num_latents]
     avg_rate = avg_rates.mean().item()
     avg_var = (
-        torch.einsum("ij,ij,j->i", centred_r, centred_r, probabilities).mean().item()
+        torch.einsum("bij,bij,j->bi", centred_r, centred_r, probabilities).mean().item()
     )
-    avg_second_moment = torch.einsum("ij,ij,j->i", r, r, probabilities).mean().item()
+    avg_second_moment = torch.einsum("bij,bij,j->bi", r, r, probabilities).mean().item()
 
     log_dict = {
         "dynamics/recurrent_update_magnitude": recurrent_update_magnitude,

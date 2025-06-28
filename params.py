@@ -15,6 +15,7 @@ ACTIVATION_FUNCTION_MAP = {
 
 @dataclass
 class SimulationParameters:
+    batch_size: int = 1
     N_E: int = 10
     num_latents: Optional[int] = None
     N_I: int = 100
