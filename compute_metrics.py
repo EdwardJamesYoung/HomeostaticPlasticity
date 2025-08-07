@@ -74,6 +74,13 @@ def compute_firing_rates(
         inhibitory_term = torch.einsum(
             "bij,bjs->bis", M, r
         )  # [batch, N_I, num_stimuli]
+        #
+        # M matrix describes connection from I to E
+        # r_I = M_IE r_E
+        # r_E = -M_EI r_I + h
+        # M_EI = M_IE.T
+        # M_EI would be the plastic weights
+
         v = v + (dt / tau_v) * (h - inhibitory_term - v)
         r_new = activation_function(v)
         r_dot = torch.mean(torch.abs(r_new - r)) / dt

@@ -224,6 +224,8 @@ def deterministic_simulation(
     homeostasis = parameters.homeostasis
     homeostasis_power = parameters.homeostasis_power
     homeostasis_target = parameters.homeostasis_target
+    weight_decay_power = parameters.weight_decay_power
+    self_connections = parameters.self_connections
     feedforward_covariance_learning = parameters.feedforward_covariance_learning
     recurrent_covariance_learning = parameters.recurrent_covariance_learning
     feedforward_voltage_learning = parameters.feedforward_voltage_learning
@@ -351,15 +353,30 @@ def deterministic_simulation(
         new_M = torch.clamp(new_M, min=1e-16)  # [batch, N_I, N_I]
         new_W = torch.clamp(new_W, min=1e-16)  # [batch, N_I, N_E]
 
+        # If self-connections are not allowed, set the diagonal of M to zero
+        if not self_connections:
+            new_M = new_M - torch.diag_embed(torch.diagonal(new_M, dim1=-2, dim2=-1))
+
         # Renormalize the weight matrices
-        new_W = torch.einsum(
-            "bi,bie -> bie",
-            W_norm / (torch.sum(torch.abs(new_W), dim=-1) + 1e-12),
+        # new_W = torch.einsum(
+        #     "bi,bie -> bie",
+        #     W_norm / (torch.sum(torch.abs(new_W), dim=-1) + 1e-12),
+        #     new_W,
+        # )  # [batch, N_I, N_E]
+        # new_M = torch.einsum(
+        #     "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
+        # )  # [batch, N_I, N_I]
+
+        new_W = renormalise_weights(
             new_W,
-        )  # [batch, N_I, N_E]
-        new_M = torch.einsum(
-            "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
-        )  # [batch, N_I, N_I]
+            W_norm,
+            weight_decay_power=weight_decay_power,
+        )
+        new_M = renormalise_weights(
+            new_M,
+            M_norm,
+            weight_decay_power=weight_decay_power,
+        )
 
         # It's logging time!
         log_dict = {}
@@ -409,6 +426,106 @@ def deterministic_simulation(
             break
 
     return W, M
+
+
+def renormalise_weights(
+    weights: Float[torch.Tensor, "batch N_out N_in"],
+    target_norms: Float[torch.Tensor, "batch N_out"],
+    weight_decay_power: float,
+) -> Float[torch.Tensor, "batch N_out N_in"]:
+    if weight_decay_power < 0:
+        raise ValueError("weight_decay_power must be ≥ 0")
+
+    # Flatten batch × out so we can work with a 2‑D view (M, I)
+    B, O, I = weights.shape
+    W = weights.reshape(-1, I)
+    K = target_norms.reshape(-1)
+    n = weight_decay_power
+
+    # ------------------------------------------------------------------
+    # 1.  Quick optimistic attempt (assume no coordinate switches off)
+    # ------------------------------------------------------------------
+    S1 = W.sum(dim=1)  # Σ w
+
+    if n == 0.0:
+        # w^0 = 1, but 0‑entries must contribute *zero* to Σ w^n
+        W_pow_n = torch.where(W > 0, torch.ones_like(W), torch.zeros_like(W))
+    else:
+        W_pow_n = W.pow(n)
+    Sn = W_pow_n.sum(dim=1)  # Σ w^n
+
+    # Tentative φ₀ (shape M) – clamp at zero to avoid negative shrink
+    phi0 = torch.clamp((S1 - K) / Sn, min=0.0)
+
+    # τᵢ = 1 / w^{n-1}  (∞ when w == 0)
+    if n == 0.0:
+        tau = torch.where(W > 0, W, torch.full_like(W, float("inf")))
+    else:
+        tau = torch.where(
+            W > 0,
+            1.0 / W.pow(n - 1),
+            torch.full_like(W, float("inf")),
+        )
+
+    tau_min = tau.min(dim=1).values  # per row
+
+    optimistic = phi0 <= tau_min  # all coords survive → solved
+
+    # Allocate output buffer
+    out = torch.empty_like(W)
+
+    if optimistic.any():
+        phi0_broadcast = phi0[optimistic].unsqueeze(-1)
+        W_opt = W[optimistic]
+        Wn_opt = W_pow_n[optimistic]
+        out[optimistic] = (W_opt - phi0_broadcast * Wn_opt).clamp(min=0.0)
+
+    # ------------------------------------------------------------------
+    # 2.  Fallback – exact breakpoint scan (only rare rows)
+    # ------------------------------------------------------------------
+    if (~optimistic).any():
+        idx_fb = (~optimistic).nonzero(as_tuple=True)[0]
+        W_fb = W[idx_fb]  # (F, I)
+        K_fb = K[idx_fb]
+        tau_fb = tau[idx_fb]
+
+        # Sort τ ascending; keep w and w^n aligned
+        tau_sorted, perm = tau_fb.sort(dim=1)
+        W_sorted = W_fb.gather(1, perm)
+        if n == 0.0:
+            Wn_sorted = torch.where(
+                W_sorted > 0, torch.ones_like(W_sorted), torch.zeros_like(W_sorted)
+            )
+        else:
+            Wn_sorted = W_sorted.pow(n)
+
+        # Suffix sums A_j=Σ w,  B_j=Σ w^n
+        A_suf = torch.cumsum(W_sorted.flip(1), dim=1).flip(1)
+        B_suf = torch.cumsum(Wn_sorted.flip(1), dim=1).flip(1)
+
+        # τ_{j-1} (prepend 0)
+        zero_col = torch.zeros_like(tau_sorted[..., :1])
+        tau_prev = torch.cat([zero_col, tau_sorted[..., :-1]], dim=1)
+
+        # Candidate φ_j for each breakpoint
+        phi_cand = (A_suf - K_fb.unsqueeze(-1)) / B_suf
+
+        # Valid interval: τ_{j-1} < φ ≤ τ_j
+        cond = (phi_cand > tau_prev) & (phi_cand <= tau_sorted)
+
+        # First valid j per row
+        #  (argmax gives 0 when all False, but theory guarantees ≥1 True)
+        j_star = cond.float().argmax(dim=1)
+        phi_fb = phi_cand.gather(1, j_star.unsqueeze(1)).squeeze(1)
+
+        # Re‑compute w' with φ_fb
+        phi_fb_b = phi_fb.unsqueeze(-1)
+        Wn_fb = Wn_sorted.scatter(1, perm.argsort(dim=1), Wn_sorted)  # undo perm
+        out_fb = (W_fb - phi_fb_b * Wn_fb).clamp(min=0.0)
+        out[idx_fb] = out_fb
+
+    # Restore original 3‑D shape
+    return out.reshape(B, O, I)
 
 
 # @jaxtyped(typechecker=typechecked)
@@ -517,6 +634,7 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     dtype = parameters.dtype
     device = parameters.device
     random_seed = parameters.random_seed
+    self_connections = parameters.self_connections
 
     torch.manual_seed(random_seed)
 
@@ -543,34 +661,22 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     initial_W = k_E * initial_W / torch.sum(torch.abs(initial_W), dim=-1, keepdim=True)
 
     # Construct M to be strongly diagonal
-    initial_M = torch.rand(batch_size, N_I, N_I, device=device, dtype=dtype) + (
-        N_I / 2
-    ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(batch_size, 1, 1)
+    if self_connections:
+        initial_M = torch.rand(batch_size, N_I, N_I, device=device, dtype=dtype) + (
+            N_I / 2
+        ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(
+            batch_size, 1, 1
+        )
+    else:
+        initial_M = torch.abs(
+            torch.rand(batch_size, N_I, N_I, device=device, dtype=dtype)
+        )
+        # Set the diagonal of M to be zero
+        initial_M = initial_M - torch.diag_embed(
+            torch.diagonal(initial_M, dim1=-2, dim2=-1)
+        )
+
     # Renormalise M
     initial_M = k_I * initial_M / torch.sum(initial_M, dim=-1, keepdim=True)
 
     return initial_W, initial_M
-
-
-# @jaxtyped(typechecker=typechecked)
-# def compute_variance_contributions(
-#     r: Float[torch.Tensor, "N_I num_samples"],
-#     q: Float[torch.Tensor, "N_E num_samples"],
-#     parameters: SimulationParameters,
-# ) -> Float[torch.Tensor, "N_E"]:
-
-#     num_samples = parameters.num_samples
-
-#     # Center the data by subtracting means
-#     r_res = r - r.mean(dim=1, keepdim=True)  # [N_I, num_samples]
-#     q_res = q - q.mean(dim=1, keepdim=True)  # [N_E, num_samples]
-
-#     # [N_I, num_samples] @ [num_samples, N_E] -> [N_I, N_E]
-#     rq_cov = (r_res @ q_res.T) / (num_samples)  # [N_I, N_E]
-
-#     rq_cov_squared = torch.sum(rq_cov**2, dim=0)  # [N_E]
-#     q_var = torch.diag(q_res @ q_res.T) / (num_samples)  # [N_E]
-
-#     mode_variance_contributions = rq_cov_squared / (q_var + 1e-16)  # [N_E]
-
-#     return mode_variance_contributions

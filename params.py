@@ -29,7 +29,9 @@ class SimulationParameters:
     tau_k: float = 500.0
     zeta: float = 1.0
     alpha: float = 1.0
+    weight_decay_power: float = 1.0
     homeostasis: bool = True
+    self_connections: bool = False
     homeostasis_power: float = 1.0
     homeostasis_target: float = 1.0
     omega: float = 1.0
