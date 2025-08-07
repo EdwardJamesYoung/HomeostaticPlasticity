@@ -1,0 +1,4 @@
+group_name: "proportional_allocation"
+
+param_grid:
+  homeostasis: [True, False]

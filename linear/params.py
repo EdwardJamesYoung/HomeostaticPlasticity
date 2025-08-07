@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 from dataclasses import dataclass, fields, asdict
 
@@ -22,6 +23,7 @@ class LinearParameters:
     random_seed: int = 0
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype: torch.dtype = torch.float64
+    tau_product: Optional[float] = None
 
     def __init__(self, **kwargs):
         field_defaults = {f.name: f.default for f in fields(self)}
@@ -35,6 +37,14 @@ class LinearParameters:
         # Initialize with filtered kwargs
         for k, v in valid_kwargs.items():
             setattr(self, k, v)
+
+        self.__post_init__()
+
+    def __post_init__(self):
+        if self.tau_product is None:
+            self.tau_product = self.tau_M * self.tau_W
+        else:
+            self.tau_M = self.tau_product / self.tau_W
 
     def to_dict(self):
         return asdict(self)
