@@ -3,7 +3,7 @@ from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 
 from params import LinearParameters
-from wandb_logging import log_variables, spectrum_differences
+from metrics import log_variables, spectrum_differences
 
 
 @jaxtyped(typechecker=typechecked)
@@ -16,6 +16,7 @@ def linear_simulation(
 ) -> tuple[
     Float[torch.Tensor, "batch N_I N_E"],
     Float[torch.Tensor, "batch N_I N_I"],
+    dict[str, torch.Tensor],
 ]:
     # Unpack from parameters
     batch_size = parameters.batch_size
@@ -32,7 +33,6 @@ def linear_simulation(
     tau_k = parameters.tau_k
     zeta = parameters.zeta
     alpha = parameters.alpha
-    wandb_logging = parameters.wandb_logging
     device = parameters.device
     dtype = parameters.dtype
 
@@ -78,6 +78,48 @@ def linear_simulation(
     covariance_matrix = torch.einsum(
         "bij,bj,bkj->bik", basis, spectrum, basis
     )  # [batch, N_E, N_E]
+
+    # === Initialize metrics tracking ===
+    num_log_steps = int(T / log_time) + 1  # +1 for initial step
+
+    # Compute initial metrics to get all keys
+    initial_X = torch.linalg.solve(
+        torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(batch_size, 1, 1)
+        + M,
+        W,
+    )
+
+    initial_log_dict = {}
+    initial_log_dict.update(
+        log_variables(
+            dW=torch.zeros_like(W),
+            dM=torch.zeros_like(M),
+            k_E=k_E,
+            new_k_E=k_E,
+            parameters=parameters,
+            iteration_step=0,
+        )
+    )
+    initial_log_dict.update(
+        spectrum_differences(
+            X=initial_X,
+            spectrum=spectrum,
+            basis=basis,
+        )
+    )
+
+    # Initialize tracking tensors for all metrics (on CPU)
+    metrics_over_time = {}
+    for key in initial_log_dict.keys():
+        metrics_over_time[key] = torch.zeros(num_log_steps, device="cpu", dtype=dtype)
+
+    # Store initial values
+    log_step = 0
+    for key, value in initial_log_dict.items():
+        metrics_over_time[key][log_step] = torch.tensor(
+            value, device="cpu", dtype=dtype
+        )
+    log_step += 1
 
     # === Perform the simulation ===
 
@@ -132,17 +174,25 @@ def linear_simulation(
         else:
             new_k_E = k_E
 
-        if wandb_logging and (ii * dt) % log_time < dt:
-            log_dict = log_variables(
-                X=X,
-                spectrum=spectrum,
-                basis=basis,
-                dW=new_W - W,
-                dM=new_M - M,
-                k_E=k_E,
-                new_k_E=new_k_E,
-                parameters=parameters,
-                iteration_step=ii,
+        if (ii * dt) % log_time < dt:
+            X = torch.linalg.solve(
+                torch.eye(N_I, device=device, dtype=dtype)
+                .unsqueeze(0)
+                .repeat(batch_size, 1, 1)
+                + M,
+                W,
+            )
+
+            log_dict = {}
+            log_dict.update(
+                log_variables(
+                    dW=new_W - W,
+                    dM=new_M - M,
+                    k_E=k_E,
+                    new_k_E=new_k_E,
+                    parameters=parameters,
+                    iteration_step=ii,
+                )
             )
             log_dict.update(
                 spectrum_differences(
@@ -151,6 +201,12 @@ def linear_simulation(
                     basis=basis,
                 )
             )
+
+            for key, value in log_dict.items():
+                metrics_over_time[key][log_step] = torch.tensor(
+                    value, device="cpu", dtype=dtype
+                )
+            log_step += 1
 
         # Update the weight matrices
         W = new_W
@@ -167,4 +223,4 @@ def linear_simulation(
             print("NaNs in the excitatory mass")
             break
 
-    return W, M
+    return W, M, metrics_over_time
