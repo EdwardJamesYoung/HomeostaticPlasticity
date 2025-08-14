@@ -10,14 +10,13 @@
       "target_variance": 0.01,
       "k_I": 25.0,
       "dt": 0.05,
-      "T": 5.0,
+      "T": 2500.0,
       "tau_M": 1.0,
       "tau_W": 5.0,
       "tau_k": 10.0,
       "zeta": 1.0,
       "alpha": 1.0,
       "log_time": 5.0,
-      "wandb_logging": false,
       "random_seed": 0
     }
   },

@@ -25,7 +25,7 @@ def generate_initial_weights(parameters: LinearParameters) -> tuple[
     torch.manual_seed(random_seed)
     np.random.seed(random_seed)
 
-    k_E = (k_I + 1) * np.sqrt(2 * target_variance * N_E / torch.pi)  # [scalar]
+    k_E = (k_I + 1) * N_E * np.sqrt(2 * target_variance / torch.pi)  # [scalar]
 
     # Draw an input weight matrix at random
     initial_W = torch.randn(

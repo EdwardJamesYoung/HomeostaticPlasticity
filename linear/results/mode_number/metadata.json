@@ -1,0 +1,90 @@
+{
+  "experiment_name": "mode_number",
+  "base_config": {
+    "group_name": "base",
+    "base_params": {
+      "batch_size": 100,
+      "N_E": 10,
+      "N_I": 100,
+      "homeostasis": true,
+      "target_variance": 0.01,
+      "k_I": 25.0,
+      "dt": 0.05,
+      "T": 2500.0,
+      "tau_M": 1.0,
+      "tau_W": 5.0,
+      "tau_k": 10.0,
+      "zeta": 1.0,
+      "alpha": 1.0,
+      "log_time": 5.0,
+      "random_seed": 0
+    }
+  },
+  "experiment_config": {
+    "group_name": "mode_number",
+    "param_grid": {
+      "N_E": [
+        5,
+        10,
+        15,
+        20,
+        25,
+        30
+      ],
+      "homeostasis": [
+        true,
+        false
+      ]
+    }
+  },
+  "param_combinations": [
+    {
+      "N_E": 5,
+      "homeostasis": true
+    },
+    {
+      "N_E": 5,
+      "homeostasis": false
+    },
+    {
+      "N_E": 10,
+      "homeostasis": true
+    },
+    {
+      "N_E": 10,
+      "homeostasis": false
+    },
+    {
+      "N_E": 15,
+      "homeostasis": true
+    },
+    {
+      "N_E": 15,
+      "homeostasis": false
+    },
+    {
+      "N_E": 20,
+      "homeostasis": true
+    },
+    {
+      "N_E": 20,
+      "homeostasis": false
+    },
+    {
+      "N_E": 25,
+      "homeostasis": true
+    },
+    {
+      "N_E": 25,
+      "homeostasis": false
+    },
+    {
+      "N_E": 30,
+      "homeostasis": true
+    },
+    {
+      "N_E": 30,
+      "homeostasis": false
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+
+sizes:
+  figure_width: 5.5
+  ratio: 0.625 
+
+
+fonts:
+  title_size: 8
+  axis_size: 7
+  legend_size: 6
+  ticks_size: 6
+  label_size: 12
+
+
+label:
+  xpos: -0.07
+  ypos: 1.13
+
+
+colours:
+  blue: 
+    light: "#ADD8E6"   
+    normal: "#0000FF"  
+    dark: "#00008B"    
+  
+  red:
+    light: "#FFA07A"   
+    normal: "#FF0000"  
+    dark: "#8B0000"    
+
+  green:
+    light: "#90EE90"   
+    normal: "#008000"  
+    dark: "#006400"    
+  
+  purple:
+    light: "#DDA0DD"   
+    normal: "#800080"  
+    dark: "#4B0082"    
+
+  grey:
+    light: "#D3D3D3"   
+    normal: "#808080"  
+    dark: "#696969"
+
+  dark_alpha: 1.0
+  normal_alpha: 0.8
+  light_alpha: 0.4
+
+
+lines: 
+  normal_line_width: 1.5
+  thick_line_width: 3.0
+
+
+elements:
+  legend: True
+  grid: True
+
+
+titles:
+  homeostasis_on: "Variance Homeostasis"
+  homeostasis_off: "Excitatory Mass Homeostasis"

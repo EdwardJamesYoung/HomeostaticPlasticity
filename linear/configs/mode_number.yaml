@@ -1,0 +1,5 @@
+group_name: "mode_number"
+
+param_grid:
+  N_E: [5, 10, 15, 20, 25, 30]
+  homeostasis: [True, False]

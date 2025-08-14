@@ -115,16 +115,12 @@ def run_experiment(experiment_name: str) -> bool:
                 final_params = merged_params.copy()
                 final_params.update(param_combo)
 
-                print(f"{final_params=}")
-
                 # Create LinearParameters object
                 parameters = LinearParameters(**final_params)
 
                 # Generate initial conditions
                 initial_W, initial_M = generate_initial_weights(parameters)
                 spectrum, basis = generate_conditions(parameters)
-
-                print(f"{parameters.to_dict()}")
 
                 # Run simulation
                 final_W, final_M, metrics_over_time = linear_simulation(
