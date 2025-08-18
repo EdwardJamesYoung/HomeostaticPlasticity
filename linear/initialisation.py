@@ -17,6 +17,7 @@ def generate_initial_weights(parameters: LinearParameters) -> tuple[
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
+    feedforward_weight_scaling = parameters.feedforward_weight_scaling
     target_variance = parameters.target_variance
     dtype = parameters.dtype
     device = parameters.device
@@ -25,7 +26,12 @@ def generate_initial_weights(parameters: LinearParameters) -> tuple[
     torch.manual_seed(random_seed)
     np.random.seed(random_seed)
 
-    k_E = (k_I + 1) * N_E * np.sqrt(2 * target_variance / torch.pi)  # [scalar]
+    k_E = (
+        feedforward_weight_scaling
+        * (k_I + 1)
+        * N_E
+        * np.sqrt(2 * target_variance / torch.pi)
+    )  # [scalar]
 
     # Draw an input weight matrix at random
     initial_W = torch.randn(

@@ -8,35 +8,53 @@ from params import LinearParameters
 
 @jaxtyped(typechecker=typechecked)
 def log_variables(
+    W: Float[torch.Tensor, "batch N_I N_E"],
     dW: Float[torch.Tensor, "batch N_I N_E"],
+    M: Float[torch.Tensor, "batch N_I N_I"],
     dM: Float[torch.Tensor, "batch N_I N_I"],
     k_E: Float[torch.Tensor, "batch N_I"],
-    new_k_E: Float[torch.Tensor, "batch N_I"],
+    dk_E: Float[torch.Tensor, "batch N_I"],
     parameters: LinearParameters,
     iteration_step: int,
 ) -> dict[str, float]:
-    batch_size = parameters.batch_size
-    N_E = parameters.N_E
-    N_I = parameters.N_I
     dt = parameters.dt
+    quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]
 
-    recurrent_update_magnitude = torch.sum(torch.abs(dM)).item() / (
-        batch_size * N_I * N_I * dt
-    )
-    feedforward_update_magnitude = torch.sum(torch.abs(dW)).item() / (
-        batch_size * N_E * N_I * dt
-    )
-    excitatory_mass_update_magnitude = torch.sum(torch.abs(new_k_E - k_E)).item() / (
-        batch_size * N_I * dt
+    # Calculate metrics per batch item
+    recurrent_update_magnitude = torch.mean(torch.abs(dM), dim=(-2, -1)) / dt
+    recurrent_percentage_change = recurrent_update_magnitude / (
+        torch.mean(M, dim=(-2, -1)) + 1e-12
     )
 
-    log_dict = {
-        "dynamics/recurrent_update_magnitude": recurrent_update_magnitude,
-        "dynamics/feedforward_update_magnitude": feedforward_update_magnitude,
-        "dynamics/excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
-        "dynamics/average_excitatory_mass": torch.mean(new_k_E).item(),
-        "time": dt * iteration_step,
+    feedforward_update_magnitude = torch.mean(torch.abs(dW), dim=(-2, -1)) / dt
+    feedforward_percentage_change = feedforward_update_magnitude / (
+        torch.mean(torch.abs(W), dim=(-2, -1)) + 1e-12
+    )
+
+    excitatory_mass_update_magnitude = torch.mean(torch.abs(dk_E), dim=-1) / dt
+    average_excitatory_mass = torch.mean(k_E, dim=-1)
+    excitatory_mass_percentage_change = excitatory_mass_update_magnitude / (
+        average_excitatory_mass + 1e-12
+    )
+
+    metrics_to_log = {
+        "recurrent_update_magnitude": recurrent_update_magnitude,
+        "recurrent_percentage_change": recurrent_percentage_change,
+        "feedforward_update_magnitude": feedforward_update_magnitude,
+        "feedforward_percentage_change": feedforward_percentage_change,
+        "excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
+        "average_excitatory_mass": average_excitatory_mass,
+        "excitatory_mass_percentage_change": excitatory_mass_percentage_change,
     }
+
+    log_dict = {}
+    for name, metric_tensor in metrics_to_log.items():
+        for q in quantiles:
+            q_value = torch.quantile(metric_tensor, q).item()
+            key = f"dynamics/{name}_q{int(q*100)}"
+            log_dict[key] = q_value
+
+    log_dict["time"] = dt * iteration_step
 
     return log_dict
 
@@ -46,6 +64,8 @@ def spectrum_differences(
     spectrum: Float[torch.Tensor, "batch N_E"],
     basis: Float[torch.Tensor, "batch N_E N_E"],
 ) -> dict[str, float]:
+
+    N_I = X.shape[-2]
 
     # Configuration
     quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]
@@ -73,6 +93,8 @@ def spectrum_differences(
     average_neuron_perplexities = torch.mean(neuron_perplexities, dim=-1)  # [batch]
 
     mode_variances = torch.einsum("bj,bij->bj", spectrum, rot_squared)  # [batch, N_E]
+    total_variance = torch.sum(mode_variances, dim=-1)  # [batch]
+    average_variance = total_variance / N_I  # [batch]
 
     # Check that the mode variances are all non-negative
     assert torch.all(
@@ -125,7 +147,19 @@ def spectrum_differences(
     # Add neuron perplexities (separate pattern)
     for q in quantiles:
         q_value = torch.quantile(average_neuron_perplexities, q).item()
-        key = f"mode_diff/neuron_perplexities_q{int(q*100)}"
+        key = f"statistics/neuron_perplexities_q{int(q*100)}"
+        results[key] = q_value
+
+    # Add average variance
+    for q in quantiles:
+        q_value = torch.quantile(average_variance, q).item()
+        key = f"statistics/average_variance_q{int(q*100)}"
+        results[key] = q_value
+
+    # Add total variance
+    for q in quantiles:
+        q_value = torch.quantile(total_variance, q).item()
+        key = f"statistics/total_variance_q{int(q*100)}"
         results[key] = q_value
 
     return results

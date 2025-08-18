@@ -115,7 +115,7 @@ def plot_N_E_sweep():
 
     # Define metrics to extract
     perplexity_metrics = [
-        f"mode_diff/neuron_perplexities_q{q}" for q in [10, 25, 50, 75, 90]
+        f"statistics/neuron_perplexities_q{q}" for q in [10, 25, 50, 75, 90]
     ]
 
     all_metrics = perplexity_metrics
@@ -135,10 +135,10 @@ def plot_N_E_sweep():
     )
 
     perp_data_false = create_boxplot_data(
-        final_metrics_false, "mode_diff/neuron_perplexities"
+        final_metrics_false, "statistics/neuron_perplexities"
     )
     perp_data_true = create_boxplot_data(
-        final_metrics_true, "mode_diff/neuron_perplexities"
+        final_metrics_true, "statistics/neuron_perplexities"
     )
 
     # Compute linear regressions first

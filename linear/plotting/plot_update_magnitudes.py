@@ -6,11 +6,11 @@ import sys
 # Add parent directory to path for imports
 sys.path.append("..")
 
-from plotting_utils import load_style, load_experiment_data
+from plotting_utils import load_style, load_experiment_data, plot_quantile_line
 
 
 def plot_update_magnitudes():
-    """Create update magnitudes plot comparing proportional allocation and low inhibition."""
+    """Create update magnitudes plot comparing proportional allocation and low."""
 
     # Load style
     style = load_style()
@@ -19,8 +19,8 @@ def plot_update_magnitudes():
     prop_data_dict, prop_metadata, prop_time_values = load_experiment_data(
         "proportional_allocation"
     )
-    inhib_data_dict, inhib_metadata, inhib_time_values = load_experiment_data(
-        "inhibition_dominance"
+    time_scale_data_dict, time_scale_metadata, time_scale_time_values = (
+        load_experiment_data("time_scale_ratio")
     )
 
     # Extract style parameters
@@ -54,6 +54,12 @@ def plot_update_magnitudes():
     homeostasis_on_title = style["titles"]["homeostasis_on"]
     homeostasis_off_title = style["titles"]["homeostasis_off"]
 
+    alphas = {
+        "light": style["colours"]["light_alpha"],
+        "normal": style["colours"]["normal_alpha"],
+        "dark": style["colours"]["dark_alpha"],
+    }
+
     # Create figure with 2x2 panels
     fig, ((ax_a, ax_b), (ax_c, ax_d)) = plt.subplots(
         2,
@@ -67,103 +73,111 @@ def plot_update_magnitudes():
     prop_false = "homeostasis_False"  # Excitatory mass homeostasis
     prop_true = "homeostasis_True"  # Variance homeostasis
 
-    # Inhibition dominance data (k_I = 0.25)
-    inhib_false = "homeostasis_False_k_I_0.25"  # Excitatory mass homeostasis
-    inhib_true = "homeostasis_True_k_I_0.25"  # Variance homeostasis
-
-    excitatory_scale = 10 * 100
-    inhibitory_scale = 100 * 100
+    # time_scaleition dominance data
+    time_scale_false = "homeostasis_False_tau_W_2.0"  # Excitatory mass homeostasis
+    time_scale_true = "homeostasis_True_tau_W_2.0"  # Variance homeostasis
 
     # Panel A: Feedforward update magnitude, Excitatory Mass Homeostasis
     if prop_false in prop_data_dict:
-        ax_a.plot(
+        plot_quantile_line(
+            ax_a,
             prop_time_values,
-            (excitatory_scale / 25)
-            * prop_data_dict[prop_false]["dynamics/feedforward_update_magnitude"].cpu(),
-            color=green_colors["normal"],
-            linewidth=line_width,
+            metrics=prop_data_dict[prop_false],
+            metric_base="dynamics/feedforward_update_magnitude",
+            color_scheme=green_colors,
+            alphas=alphas,
+            line_width=line_width,
             label="Proportional Allocation",
         )
 
-    if inhib_false in inhib_data_dict:
-        ax_a.plot(
-            inhib_time_values,
-            (excitatory_scale / 0.25)
-            * inhib_data_dict[inhib_false][
-                "dynamics/feedforward_update_magnitude"
-            ].cpu(),
-            color=red_colors["normal"],
-            linewidth=line_width,
-            label="Low Inhibition",
+    if time_scale_false in time_scale_data_dict:
+        plot_quantile_line(
+            ax_a,
+            time_scale_time_values,
+            metrics=time_scale_data_dict[time_scale_false],
+            metric_base="dynamics/feedforward_update_magnitude",
+            color_scheme=red_colors,
+            alphas=alphas,
+            line_width=line_width,
+            label="Low time_scaleition",
         )
 
     ax_a.set_title(homeostasis_off_title, fontsize=title_size)
 
     # Panel B: Feedforward update magnitude, Variance Homeostasis
     if prop_true in prop_data_dict:
-        ax_b.plot(
+        plot_quantile_line(
+            ax_b,
             prop_time_values,
-            (excitatory_scale / 25)
-            * prop_data_dict[prop_true]["dynamics/feedforward_update_magnitude"].cpu(),
-            color=green_colors["normal"],
-            linewidth=line_width,
+            metrics=prop_data_dict[prop_true],
+            metric_base="dynamics/feedforward_update_magnitude",
+            color_scheme=green_colors,
+            alphas=alphas,
+            line_width=line_width,
             label="Proportional Allocation",
         )
 
-    if inhib_true in inhib_data_dict:
-        ax_b.plot(
-            inhib_time_values,
-            (excitatory_scale / 0.25)
-            * inhib_data_dict[inhib_true][
-                "dynamics/feedforward_update_magnitude"
-            ].cpu(),
-            color=red_colors["normal"],
-            linewidth=line_width,
-            label="Low Inhibition",
+    if time_scale_true in time_scale_data_dict:
+        plot_quantile_line(
+            ax_b,
+            time_scale_time_values,
+            metrics=time_scale_data_dict[time_scale_true],
+            metric_base="dynamics/feedforward_update_magnitude",
+            color_scheme=red_colors,
+            alphas=alphas,
+            line_width=line_width,
+            label="Low time_scaleition",
         )
 
-    ax_b.set_title(homeostasis_on_title, fontsize=title_size)
+        ax_b.set_title(homeostasis_on_title, fontsize=title_size)
 
     # Panel C: Recurrent update magnitude, Excitatory Mass Homeostasis
     if prop_false in prop_data_dict:
-        ax_c.plot(
+        plot_quantile_line(
+            ax_c,
             prop_time_values,
-            (inhibitory_scale / 25)
-            * prop_data_dict[prop_false]["dynamics/recurrent_update_magnitude"].cpu(),
-            color=green_colors["normal"],
-            linewidth=line_width,
+            metrics=prop_data_dict[prop_false],
+            metric_base="dynamics/recurrent_update_magnitude",
+            color_scheme=green_colors,
+            alphas=alphas,
+            line_width=line_width,
             label="Proportional Allocation",
         )
 
-    if inhib_false in inhib_data_dict:
-        ax_c.plot(
-            inhib_time_values,
-            (inhibitory_scale / 0.25)
-            * inhib_data_dict[inhib_false]["dynamics/recurrent_update_magnitude"].cpu(),
-            color=red_colors["normal"],
-            linewidth=line_width,
-            label="Low Inhibition",
+    if time_scale_false in time_scale_data_dict:
+        plot_quantile_line(
+            ax_c,
+            time_scale_time_values,
+            metrics=time_scale_data_dict[time_scale_false],
+            metric_base="dynamics/recurrent_update_magnitude",
+            color_scheme=red_colors,
+            alphas=alphas,
+            line_width=line_width,
+            label="Low time_scaleition",
         )
 
-    # Panel D: Recurrent update magnitude, Variance Homeostasis
     if prop_true in prop_data_dict:
-        ax_d.plot(
+        plot_quantile_line(
+            ax_d,
             prop_time_values,
-            (inhibitory_scale / 25)
-            * prop_data_dict[prop_true]["dynamics/recurrent_update_magnitude"].cpu(),
-            color=green_colors["normal"],
-            linewidth=line_width,
+            metrics=prop_data_dict[prop_true],
+            metric_base="dynamics/recurrent_update_magnitude",
+            color_scheme=green_colors,
+            alphas=alphas,
+            line_width=line_width,
             label="Proportional Allocation",
         )
 
-    if inhib_true in inhib_data_dict:
-        ax_d.plot(
-            inhib_time_values,
-            (inhibitory_scale / 0.25)
-            * inhib_data_dict[inhib_true]["dynamics/recurrent_update_magnitude"].cpu(),
-            color=red_colors["normal"],
-            linewidth=line_width,
-            label="Low Inhibition",
+    if time_scale_true in time_scale_data_dict:
+        plot_quantile_line(
+            ax_d,
+            time_scale_time_values,
+            metrics=time_scale_data_dict[time_scale_true],
+            metric_base="dynamics/recurrent_update_magnitude",
+            color_scheme=red_colors,
+            alphas=alphas,
+            line_width=line_width,
+            label="Low time_scaleition",
         )
 
     # Style all panels
@@ -178,15 +192,10 @@ def plot_update_magnitudes():
         # X-axis labels (only bottom panels)
         if i >= 2:  # Bottom panels (C, D)
             ax.set_xlabel("Time", fontsize=axis_size)
-            ax.set_ylim(0, 1.0)
-        else:  # Top panels (A, B) - remove x-axis labels
-            ax.set_xticklabels([])
-            ax.tick_params(bottom=False)
-            ax.set_ylim(0, 0.2)
 
         # Set axis limits
         # Use the longer time series for x-axis limit
-        max_time = max(prop_time_values.max(), inhib_time_values.max())
+        max_time = max(prop_time_values.max(), time_scale_time_values.max())
         ax.set_xlim(0, max_time)
 
         # Tick sizes

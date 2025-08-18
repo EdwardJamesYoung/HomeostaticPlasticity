@@ -92,10 +92,12 @@ def linear_simulation(
     initial_log_dict = {}
     initial_log_dict.update(
         log_variables(
+            W=W,
             dW=torch.zeros_like(W),
+            M=M,
             dM=torch.zeros_like(M),
             k_E=k_E,
-            new_k_E=k_E,
+            dk_E=torch.zeros_like(k_E),
             parameters=parameters,
             iteration_step=0,
         )
@@ -175,21 +177,16 @@ def linear_simulation(
             new_k_E = k_E
 
         if (ii * dt) % log_time < dt and log_step < num_log_steps:
-            X = torch.linalg.solve(
-                torch.eye(N_I, device=device, dtype=dtype)
-                .unsqueeze(0)
-                .repeat(batch_size, 1, 1)
-                + M,
-                W,
-            )
 
             log_dict = {}
             log_dict.update(
                 log_variables(
+                    W=W,
                     dW=new_W - W,
+                    M=M,
                     dM=new_M - M,
-                    k_E=k_E,
-                    new_k_E=new_k_E,
+                    k_E=new_k_E,
+                    dk_E=new_k_E - k_E,
                     parameters=parameters,
                     iteration_step=ii,
                 )

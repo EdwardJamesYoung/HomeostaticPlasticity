@@ -10,12 +10,13 @@ class LinearParameters:
     N_I: int = 100
     homeostasis: bool = True
     target_variance: float = 1.0
-    k_I: float = 10.0
+    k_I: float = 25.0
+    feedforward_weight_scaling: float = 0.5
     T: float = 120000.0
     dt: float = 0.05
     tau_M: float = 50.0
     tau_W: float = 250.0
-    tau_k: float = 500.0
+    tau_k: float = 1000.0
     zeta: float = 1.0
     alpha: float = 1.0
     log_time: float = 20.0

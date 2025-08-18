@@ -9,8 +9,8 @@ sys.path.append("..")
 from plotting_utils import load_style, load_experiment_data, plot_quantile_line
 
 
-def plot_neuron_perplexities():
-    """Create proportional allocation plot with homeostasis comparison."""
+def plot_proportional_variance():
+    """Create proportional variance plot with homeostasis comparison."""
 
     # Load style and data
     style = load_style()
@@ -26,7 +26,7 @@ def plot_neuron_perplexities():
     fig_height = panel_height
 
     # Color schemes
-    purple_colours = style["colours"]["purple"]
+    purple_colors = style["colours"]["purple"]
 
     # Alpha values
     alphas = {
@@ -55,7 +55,7 @@ def plot_neuron_perplexities():
 
     # Create figure with two panels
     fig, (ax1, ax2) = plt.subplots(
-        1, 2, figsize=(fig_width, fig_height), gridspec_kw={"wspace": 0.1}
+        1, 2, figsize=(fig_width, fig_height), gridspec_kw={"wspace": 0.3}
     )
 
     # Left panel: homeostasis_False
@@ -66,17 +66,18 @@ def plot_neuron_perplexities():
             ax1,
             time_values,
             metrics_false,
-            "statistics/neuron_perplexities",
-            purple_colours,
+            "statistics/average_variance",
+            purple_colors,
             alphas,
             line_width,
-            "",
+            "Average Variance",
         )
 
         ax1.set_title(homeostasis_off_title, fontsize=title_size)
     else:
         print("Warning: homeostasis_False data not found")
 
+    # Right panel: homeostasis_True
     if "homeostasis_True" in data_dict:
         metrics_true = data_dict["homeostasis_True"]
 
@@ -84,11 +85,11 @@ def plot_neuron_perplexities():
             ax2,
             time_values,
             metrics_true,
-            "statistics/neuron_perplexities",
-            purple_colours,
+            "statistics/average_variance",
+            purple_colors,
             alphas,
             line_width,
-            "",
+            "Average Variance",
         )
 
         ax2.set_title(homeostasis_on_title, fontsize=title_size)
@@ -99,18 +100,18 @@ def plot_neuron_perplexities():
     for i, ax in enumerate([ax1, ax2]):
         ax.set_xlabel("Time", fontsize=axis_size)
         if i == 0:  # Left panel only
-            ax.set_ylabel("Average perplexity", fontsize=axis_size)
-        else:  # Right panel - remove y-axis label and ticks
-            ax.set_yticklabels([])
-            ax.tick_params(left=False)
+            ax.set_ylabel("Average Variance", fontsize=axis_size)
 
         ax.tick_params(axis="both", which="major", labelsize=ticks_size)
 
-        ax.set_ylim(4, 7)
         ax.set_xlim(0, time_values.max())
 
         if style["elements"]["grid"]:
             ax.grid(True, alpha=0.3)
+
+    # Only show legend on right panel to avoid duplication
+    if style["elements"]["legend"]:
+        ax2.legend(fontsize=legend_size, loc="best")
 
     # Add panel labels
     ax1.text(
@@ -140,7 +141,7 @@ def plot_neuron_perplexities():
     figures_dir = Path("figures")
     figures_dir.mkdir(exist_ok=True)
 
-    output_path = figures_dir / "neuron_perplexities.pdf"
+    output_path = figures_dir / "proportional_variance.pdf"
     plt.savefig(output_path, format="pdf", bbox_inches="tight", dpi=300)
     plt.close()
 
@@ -148,4 +149,4 @@ def plot_neuron_perplexities():
 
 
 if __name__ == "__main__":
-    plot_neuron_perplexities()
+    plot_proportional_variance()
