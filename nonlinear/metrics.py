@@ -128,25 +128,25 @@ def _compute_circular_width_2d(
 
 
 @jaxtyped(typechecker=typechecked)
-def response_curves(
+def curves_log(
     rates: Float[torch.Tensor, "batch N_I num_stimuli"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
-) -> Float[torch.Tensor, "batch N_I num_stimuli"]:
+) -> dict[str, Float[torch.Tensor, "batch num_stimuli"]]:
     N_I = parameters.N_I
 
     stimuli_locations = input_generator.stimuli_locations  # [num_stimuli, num_dims]
 
-    argmax_rates = rates.argmax(
+    argmax_indices = rates.argmax(
         axis=-1
     )  # [batch, N_I] (indices of max response in num_stimuli)
-    # Expand argmax_indices to match stimuli_locations dimensions
-    argmax_expanded = argmax_rates.unsqueeze(-1).expand(
-        -1, -1, stimuli_locations.shape[-1]
+    argmax_stimuli = stimuli_locations[
+        argmax_indices.view(-1)
+    ]  # [batch, N_I, num_dims]
+    argmax_stimuli = argmax_stimuli.view(
+        argmax_indices.shape[0], argmax_indices.shape[1], -1
     )  # [batch, N_I, num_dims]
-    argmax_stimuli = torch.gather(
-        stimuli_locations, dim=1, index=argmax_expanded
-    )  # [batch, N_I, num_dims]
+
     max_rates = rates.max(axis=-1)[0]  # [batch, N_I]
 
     bw_multiplier = N_I ** (-0.2)
@@ -169,13 +169,13 @@ def response_curves(
     widths = circular_smooth_huber(
         argmax_stimuli,
         tuning_curve_widths,
-        stimuli_locations,
+        stimuli_locations.unsqueeze(0),
         bw=bw_multiplier * 0.4,
         delta=0.25 * width_range.item(),
     )  # [batch, num_stimuli]
 
     density = circular_kde(
-        argmax_stimuli, stimuli_locations, bw=bw_multiplier * 0.2
+        argmax_stimuli, stimuli_locations.unsqueeze(0), bw=bw_multiplier * 0.2
     )  # [batch, num_stimuli]
 
     return {
@@ -194,8 +194,7 @@ def dynamics_log(
     k_E: Float[torch.Tensor, "batch N_I"],
     dk_E: Float[torch.Tensor, "batch N_I"],
     parameters: SimulationParameters,
-    iteration_step: int,
-) -> dict[str, float]:
+) -> dict[str, Float[torch.Tensor, "batch"]]:
     dt = parameters.dt
 
     # Calculate metrics per batch item
@@ -223,7 +222,6 @@ def dynamics_log(
         "dynamics/excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
         "dynamics/average_excitatory_mass": average_excitatory_mass,
         "dynamics/excitatory_mass_percentage_change": excitatory_mass_percentage_change,
-        "time": dt * iteration_step,
     }
 
     return metrics_to_log

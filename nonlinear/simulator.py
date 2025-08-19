@@ -7,12 +7,7 @@ from typing import Optional
 from input_generation import InputGenerator
 from params import SimulationParameters
 
-# from metrics import (
-#     compute_population_response_metrics,
-#     compute_discrepancies,
-#     dynamics_log,
-#     compute_regressions,
-# )
+from metrics import dynamics_log, curves_log
 
 
 @jaxtyped(typechecker=typechecked)
@@ -167,8 +162,51 @@ def run_simulation(
     M_lr = dt / tau_M
     k_lr = dt / tau_k
 
-    v = None
-    r = None
+    # === Initialize metrics tracking ===
+    num_log_steps = int(T / log_time) + 1  # +1 for initial step
+
+    # Compute initial metrics
+    r, v = compute_firing_rates(W, M, stimuli, parameters, v_init=None)
+
+    initial_log_dict = {}
+    initial_log_dict.update(
+        dynamics_log(
+            W=W,
+            dW=torch.zeros_like(W),
+            M=M,
+            dM=torch.zeros_like(M),
+            k_E=k_E,
+            dk_E=torch.zeros_like(k_E),
+            parameters=parameters,
+        )
+    )
+    initial_log_dict.update(
+        curves_log(
+            rates=r,
+            input_generator=input_generator,
+            parameters=parameters,
+        )
+    )
+
+    # Initialize tracking tensors for all metrics (on CPU)
+    metrics_over_time = {}
+    for key, value in initial_log_dict.items():
+        metric_shape = value.shape
+        metrics_over_time[key] = torch.zeros(
+            (num_log_steps,) + metric_shape, device="cpu", dtype=parameters.dtype
+        )
+
+    # Store initial values
+    log_step = 0
+    for key, value in initial_log_dict.items():
+        metrics_over_time[key][log_step] = value.detach().cpu()
+
+    metrics_over_time["time"] = torch.zeros(
+        num_log_steps, device="cpu", dtype=parameters.dtype
+    )
+    metrics_over_time["time"][log_step] = dt * log_step
+
+    log_step += 1
 
     for ii in range(total_update_steps):
         r, v = compute_firing_rates(
@@ -249,34 +287,35 @@ def run_simulation(
             "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
         )  # [batch, N_I, N_I]
 
-        # It's logging time!
-        # log_dict = {}
+        # === Logging ===
+        if (ii * dt) % log_time < dt and log_step < num_log_steps:
+            log_dict = {}
+            log_dict.update(
+                dynamics_log(
+                    W=W,
+                    dW=new_W - W,
+                    M=M,
+                    dM=new_M - M,
+                    k_E=new_k_E,
+                    dk_E=new_k_E - k_E,
+                    parameters=parameters,
+                )
+            )
+            log_dict.update(
+                curves_log(
+                    rates=r,
+                    input_generator=input_generator,
+                    parameters=parameters,
+                )
+            )
 
-        # if wandb_logging and ii % int(mode_log_time / tau_u) == 0:
-        #     population_response_metrics = compute_population_response_metrics(
-        #         rates=r, input_generator=input_generator, parameters=parameters
-        #     )
-        #     log_dict.update(compute_discrepancies(population_response_metrics))
-        #     log_dict.update(compute_regressions(population_response_metrics))
+            # Store metrics
+            for key, value in log_dict.items():
+                metrics_over_time[key][log_step] = value.detach().cpu()
 
-        #     # log_dict.update(rate_mode_log(population_response_metrics, parameters))
+            metrics_over_time["time"][log_step] = log_time * log_step
 
-        # if wandb_logging and ii % int(dynamics_log_time / tau_u) == 0:
-        #     log_dict.update(
-        #         dynamics_log(
-        #             dW=new_W - W,
-        #             dM=new_M - M,
-        #             k_E=k_E,
-        #             new_k_E=new_k_E,
-        #             r=r,
-        #             probabilities=probabilities,
-        #             parameters=parameters,
-        #             iteration_step=ii,
-        #         )
-        #     )
-
-        # if wandb_logging and log_dict:
-        #     wandb.log(log_dict)
+            log_step += 1
 
         # Update the weight matrices
         W = new_W
@@ -296,4 +335,4 @@ def run_simulation(
             print("NaNs in the firing rates")
             break
 
-    return W, M
+    return W, M, metrics_over_time
