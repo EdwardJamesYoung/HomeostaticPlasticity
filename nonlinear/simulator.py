@@ -17,14 +17,14 @@ from params import SimulationParameters
 
 @jaxtyped(typechecker=typechecked)
 def compute_firing_rates(
-    W: Float[torch.Tensor, "batch N_I N_E"],
-    M: Float[torch.Tensor, "batch N_I N_I"],
-    u: Float[torch.Tensor, "N_E num_stimuli"],
+    W: Float[torch.Tensor, "batch_size N_I N_E"],
+    M: Float[torch.Tensor, "batch_size N_I N_I"],
+    u: Float[torch.Tensor, "batch_size N_E num_stimuli"],
     parameters: SimulationParameters,
-    v_init: Optional[Float[torch.Tensor, "batch N_I num_stimuli"]] = None,
+    v_init: Optional[Float[torch.Tensor, "batch_size N_I num_stimuli"]] = None,
 ) -> tuple[
-    Float[torch.Tensor, "batch N_I num_stimuli"],
-    Float[torch.Tensor, "batch N_I num_stimuli"],
+    Float[torch.Tensor, "batch_size N_I num_stimuli"],
+    Float[torch.Tensor, "batch_size N_I num_stimuli"],
 ]:
     """
     Compute the firing rates of a neural network given the input and weight matrices.
@@ -46,7 +46,7 @@ def compute_firing_rates(
     max_iter = parameters.rate_computation_iterations
 
     # Initialise the input h and the voltage v
-    h = torch.einsum("bie,es->bis", W, u)  # [batch, N_I, num_stimuli]
+    h = torch.einsum("bie,bes->bis", W, u)  # [batch_size, N_I, num_stimuli]
     if v_init is not None:
         v = v_init
     else:
@@ -58,7 +58,7 @@ def compute_firing_rates(
     while r_dot > threshold and counter < max_iter:
         inhibitory_term = torch.einsum(
             "bij,bjs->bis", M, r
-        )  # [batch, N_I, num_stimuli]
+        )  # [batch_size, N_I, num_stimuli]
         v = v + (dt_v / tau_v) * (h - inhibitory_term - v)
         r_new = activation_function(v)
         r_dot = torch.mean(torch.abs(r_new - r)) / dt_v
@@ -70,8 +70,8 @@ def compute_firing_rates(
 
 @jaxtyped(typechecker=typechecked)
 def run_simulation(
-    initial_W: Float[torch.Tensor, "batch N_I N_E"],
-    initial_M: Float[torch.Tensor, "batch N_I N_I"],
+    initial_W: Float[torch.Tensor, "#batch_size N_I N_E"],
+    initial_M: Float[torch.Tensor, "#batch_size N_I N_I"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
 ):
@@ -89,8 +89,6 @@ def run_simulation(
     Returns:
         _type_: _description_
     """
-    # Unpack from parameters
-    batch_size = parameters.batch_size
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
@@ -112,6 +110,13 @@ def run_simulation(
     device = parameters.device
 
     # === Perform checks on the input ===
+
+    batch_size = max(input_generator.batch_size, parameters.batch_size)
+
+    if initial_W.shape[0] == 1:
+        initial_W = initial_W.expand(batch_size, -1, -1)
+    if initial_M.shape[0] == 1:
+        initial_M = initial_M.expand(batch_size, -1, -1)
 
     # Verify that the input feedforward weights has the correct shape
     assert initial_W.shape == (
@@ -147,10 +152,14 @@ def run_simulation(
     M_norm = torch.sum(M, dim=-1)  # [batch_size, N_I]
 
     # Initialise the input, firing rates, and mean-firing rate
-    stimuli = input_generator.stimuli_patterns  # [N_E, num_latents]
-    probabilities = input_generator.stimuli_probabilities  # [num_latents]
-    excitatory_third_factor = input_generator.excitatory_third_factor  # [num_latents]
-    inhibitory_third_factor = input_generator.inhibitory_third_factor  # [num_latents]
+    stimuli = input_generator.stimuli_patterns  #  [batch_size, N_E, num_stimuli]
+    probabilities = input_generator.stimuli_probabilities  # [batch_size, num_stimuli]
+    excitatory_third_factor = (
+        input_generator.excitatory_third_factor
+    )  # [batch_size, num_stimuli]
+    inhibitory_third_factor = (
+        input_generator.inhibitory_third_factor
+    )  # [batch_size, num_stimuli]
 
     # Each update step will be dt time steps long
     total_update_steps = int(T / dt)
@@ -164,7 +173,7 @@ def run_simulation(
     for ii in range(total_update_steps):
         r, v = compute_firing_rates(
             W, M, stimuli, parameters, v_init=v
-        )  # [batch, N_I, num_latents]
+        )  # [batch, N_I, num_stimuli]
 
         if feedforward_voltage_learning:
             feedforward_learning_variable = v
@@ -191,7 +200,7 @@ def run_simulation(
             recurrent_learning_signal = recurrent_learning_variable
 
         dW = torch.einsum(
-            "bij,j,j,kj->bik",
+            "bij,bj,bj,bkj->bik",
             feedforward_learning_signal,
             excitatory_third_factor,
             probabilities,
@@ -199,7 +208,7 @@ def run_simulation(
         )  # [batch, N_I, N_E]
 
         dM = torch.einsum(
-            "bij,j,j,bkj->bik",
+            "bij,bj,bj,bkj->bik",
             recurrent_learning_signal,
             inhibitory_third_factor,
             probabilities,
@@ -209,7 +218,7 @@ def run_simulation(
         # Update the excitatory mass
         if homeostasis:
             homeostatic_quantity = torch.einsum(
-                "bij,j->bi", r**homeostasis_power, probabilities
+                "bij,bj->bi", r**homeostasis_power, probabilities
             )
             ratio = homeostatic_quantity / homeostasis_target
 

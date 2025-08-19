@@ -3,25 +3,71 @@ import numpy as np
 from abc import ABC, abstractmethod
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
-from typing import Tuple, Union, TypeAlias
+from typing import Tuple, Union, TypeAlias, List
 from dataclasses import dataclass
 import scipy.stats
 import scipy.optimize
 from params import SimulationParameters
+from itertools import product
 
 
+@jaxtyped(typechecker=typechecked)
 @dataclass
 class DistributionConfig1D:
-    mixing_parameter: float = 0.0
-    concentration: float = 1.0
-    location: float = 0.0
+    mixing_parameter: Float[torch.Tensor, "#batch 1"] = torch.zeros(1, 1)
+    concentration: Float[torch.Tensor, "#batch 1"] = torch.ones(1, 1)
+    location: Float[torch.Tensor, "#batch 1"] = torch.zeros(1, 1)
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def __post_init__(self):
+        # Ensure all tensors are on the correct device
+        self.mixing_parameter = self.mixing_parameter.to(self.device)
+        self.concentration = self.concentration.to(self.device)
+        self.location = self.location.to(self.device)
+
+        # Broadcast so that all the batch sizes are the same shape
+        self.batch_size = max(
+            self.mixing_parameter.shape[0],
+            self.concentration.shape[0],
+            self.location.shape[0],
+        )
+
+        self.mixing_parameter, self.concentration, self.location = (
+            torch.broadcast_tensors(
+                self.mixing_parameter,
+                self.concentration,
+                self.location,
+            )
+        )
 
 
 @dataclass
+@jaxtyped(typechecker=typechecked)
 class DistributionConfig2D:
-    mixing_parameter: float = 0.0
-    concentration: float = 1.0
-    location: Tuple[float, float] = (0.0, 0.0)
+    mixing_parameter: Float[torch.Tensor, "#batch 1"] = torch.zeros(1, 1)
+    concentration: Float[torch.Tensor, "#batch 1"] = torch.ones(1, 1)
+    location: Float[torch.Tensor, "#batch 2"] = torch.zeros(1, 2)
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def __post_init__(self):
+        # Ensure all tensors are on the correct device
+        self.mixing_parameter = self.mixing_parameter.to(self.device)
+        self.concentration = self.concentration.to(self.device)
+        self.location = self.location.to(self.device)
+
+        self.batch_size = max(
+            self.mixing_parameter.shape[0],
+            self.concentration.shape[0],
+            self.location.shape[0],
+        )
+
+        self.mixing_parameter, self.concentration, self.location = (
+            torch.broadcast_tensors(
+                self.mixing_parameter,
+                self.concentration,
+                self.location,
+            )
+        )
 
     def marginal(self, dim: int) -> DistributionConfig1D:
         assert dim in (0, 1), "Dimension must be 0 or 1"
@@ -29,77 +75,244 @@ class DistributionConfig2D:
         return DistributionConfig1D(
             mixing_parameter=self.mixing_parameter,
             concentration=self.concentration,
-            location=self.location[dim],
+            location=self.location[:, dim : dim + 1],
         )
 
 
 DistributionConfig: TypeAlias = Union[DistributionConfig1D, DistributionConfig2D]
 
 
+@jaxtyped(typechecker=typechecked)
+def create_config_grid_1d(
+    mixing_parameters: List[float],
+    concentrations: List[float],
+    locations: List[float],
+) -> DistributionConfig1D:
+    """
+    Create a DistributionConfig1D with a grid of all parameter combinations.
+
+    Args:
+        mixing_parameters: List of mixing parameter values
+        concentrations: List of concentration values
+        locations: List of location values
+        device: Device to place tensors on (if None, uses dataclass default)
+
+    Returns:
+        DistributionConfig1D with batch_size = len(mixing_parameters) * len(concentrations) * len(locations)
+
+    Example:
+        config = create_config_grid_1d(
+            mixing_parameters=[0.0, 0.5],
+            concentrations=[1.0, 2.0],
+            locations=[0.0, 1.57]
+        )
+        # Results in batch_size = 8 with all combinations
+    """
+    # Create Cartesian product of all parameter combinations
+    param_combinations = list(product(mixing_parameters, concentrations, locations))
+
+    # Unpack into separate lists
+    mixing_vals, concentration_vals, location_vals = zip(*param_combinations)
+
+    # Convert to tensors with shape [batch, 1]
+    mixing_tensor = torch.tensor(mixing_vals, dtype=torch.float).unsqueeze(1)
+    concentration_tensor = torch.tensor(
+        concentration_vals, dtype=torch.float
+    ).unsqueeze(1)
+    location_tensor = torch.tensor(location_vals, dtype=torch.float).unsqueeze(1)
+
+    config = DistributionConfig1D(
+        mixing_parameter=mixing_tensor,
+        concentration=concentration_tensor,
+        location=location_tensor,
+    )
+
+    return config
+
+
+@jaxtyped(typechecker=typechecked)
+def create_config_grid_2d(
+    mixing_parameters: List[float],
+    concentrations: List[float],
+    locations: List[List[float]],  # Each element is [loc_0, loc_1]
+) -> DistributionConfig2D:
+    """
+    Create a DistributionConfig2D with a grid of all parameter combinations.
+
+    Args:
+        mixing_parameters: List of mixing parameter values
+        concentrations: List of concentration values
+        locations: List of 2D location pairs [[x1, y1], [x2, y2], ...]
+
+    Returns:
+        DistributionConfig2D with batch_size = len(mixing_parameters) * len(concentrations) * len(locations)
+
+    Example:
+        config = create_config_grid_2d(
+            mixing_parameters=[0.0, 0.5],
+            concentrations=[1.0, 2.0],
+            locations=[[0.0, 0.0], [1.57, 1.57]]
+        )
+        # Results in batch_size = 8 with all combinations
+    """
+    # Create Cartesian product of all parameter combinations
+    param_combinations = list(product(mixing_parameters, concentrations, locations))
+
+    # Unpack into separate lists
+    mixing_vals, concentration_vals, location_vals = zip(*param_combinations)
+
+    # Convert to tensors
+    mixing_tensor = torch.tensor(mixing_vals, dtype=torch.float).unsqueeze(
+        1
+    )  # [batch, 1]
+    concentration_tensor = torch.tensor(
+        concentration_vals, dtype=torch.float
+    ).unsqueeze(
+        1
+    )  # [batch, 1]
+    location_tensor = torch.tensor(location_vals, dtype=torch.float)  # [batch, 2]
+
+    config = DistributionConfig2D(
+        mixing_parameter=mixing_tensor,
+        concentration=concentration_tensor,
+        location=location_tensor,
+    )
+
+    return config
+
+
+@jaxtyped(typechecker=typechecked)
 def evaluate_mixture_1d(
-    locations: Float[torch.Tensor, "batch 1"], config: DistributionConfig1D
-) -> Float[torch.Tensor, "batch"]:
-    """Evaluate mixture distribution at given angles"""
-    device = locations.device
-    dtype = locations.dtype
+    eval_positions: Float[torch.Tensor, "num_points 1"], config: DistributionConfig1D
+) -> Float[torch.Tensor, "config_batch num_points"]:
+    device = eval_positions.device
+    dtype = eval_positions.dtype
 
-    mixing_parameter = config.mixing_parameter
-    location = config.location
-    concentration = config.concentration
+    # Broadcast config parameters to final batch size
+    batch_size = config.batch_size
+    mixing_parameter = config.mixing_parameter.expand(batch_size, 1)  # [batch, 1]
+    concentration = config.concentration.expand(batch_size, 1)  # [batch, 1]
+    location = config.location.expand(batch_size, 1)  # [batch, 1]
 
-    density = mixing_parameter * torch.exp(
-        torch.distributions.VonMises(
-            loc=location * torch.ones(1, device=device, dtype=dtype),
-            concentration=concentration,
-        ).log_prob(locations)
-    ) + (1 - mixing_parameter) / (2 * torch.pi)
+    # Compute von Mises component: [batch, num_points]
+    vm_log_prob = torch.distributions.VonMises(
+        loc=location,  # [batch, 1]
+        concentration=concentration,  # [batch, 1]
+    ).log_prob(
+        eval_positions.squeeze(-1).unsqueeze(0)
+    )  # [batch, num_points]
 
-    density /= density.sum()
-    density = density.squeeze(-1)  # [batch, 1] -> [batch]
+    density = mixing_parameter * torch.exp(vm_log_prob) + (1 - mixing_parameter) / (
+        2 * torch.pi
+    )  # [batch, num_points]
+
+    # Normalize each batch element
+    density = density / density.sum(dim=1, keepdim=True)  # [batch, num_points]
+
     return density.to(device=device, dtype=dtype)
 
 
-def mixture_cdf_1d(theta: float, config: DistributionConfig1D) -> float:
+def mixture_cdf_1d(
+    theta: float, mixing_parameter: float, concentration: float, location: float
+) -> float:
     """CDF of mixture distribution"""
-    uniform_cdf = (theta + torch.pi) / (2 * torch.pi)  # CDF of uniform on [-π, π)
-    von_mises_cdf = scipy.stats.vonmises.cdf(
-        theta, config.concentration, loc=config.location
-    )
-    return (
-        config.mixing_parameter * von_mises_cdf
-        + (1 - config.mixing_parameter) * uniform_cdf
-    )
+    uniform_cdf = (theta + torch.pi) / (2 * torch.pi)
+    von_mises_cdf = scipy.stats.vonmises.cdf(theta, concentration, loc=location)
+    return mixing_parameter * von_mises_cdf + (1 - mixing_parameter) * uniform_cdf
 
 
-def inverse_cdf_1d(u: float, config: DistributionConfig1D) -> float:
+def inverse_cdf_1d(
+    u: float, mixing_parameter: float, concentration: float, location: float
+) -> float:
     """Inverse CDF of mixture distribution using numerical inversion"""
 
     def objective(theta):
-        return mixture_cdf_1d(theta, config) - u
+        return mixture_cdf_1d(theta, mixing_parameter, concentration, location) - u
 
     result = scipy.optimize.brentq(objective, -torch.pi, torch.pi - 1e-6)
     return result
 
 
+@jaxtyped(typechecker=typechecked)
+def compute_unique_inverse_cdf_1d(
+    uniform_grid: Float[torch.Tensor, "num_points"], config: DistributionConfig1D
+) -> Float[torch.Tensor, "batch num_points"]:
+    """Efficiently compute inverse CDF for batched config using unique parameter combinations"""
+    device = config.mixing_parameter.device
+    dtype = config.mixing_parameter.dtype
+
+    # Stack parameters for uniqueness detection
+    params = torch.cat(
+        [
+            config.mixing_parameter,  # [batch, 1]
+            config.concentration,  # [batch, 1]
+            config.location,  # [batch, 1]
+        ],
+        dim=1,
+    )  # [batch, 3]
+
+    # Find unique parameter combinations
+    unique_params, inverse_indices = torch.unique(params, dim=0, return_inverse=True)
+    num_unique = unique_params.shape[0]
+
+    # Compute inverse CDF only for unique parameter combinations
+    results = torch.zeros(num_unique, len(uniform_grid), device=device, dtype=dtype)
+
+    for i in range(num_unique):
+        mixing_param = unique_params[i, 0].item()
+        concentration = unique_params[i, 1].item()
+        location = unique_params[i, 2].item()
+
+        # Handle pure uniform case analytically
+        if mixing_param == 0:
+            angles = 2 * torch.pi * uniform_grid - torch.pi
+        else:
+            # Compute numerically for mixed distributions
+            angles = torch.tensor(
+                [
+                    inverse_cdf_1d(u.item(), mixing_param, concentration, location)
+                    for u in uniform_grid
+                ],
+                device=device,
+                dtype=dtype,
+            )
+
+        results[i] = angles
+
+    # Broadcast results back to full batch size using inverse indices
+    batch_results = results[inverse_indices]  # [batch, num_points]
+
+    return batch_results
+
+
+@jaxtyped(typechecker=typechecked)
 def evaluate_mixture_2d(
-    locations: Float[torch.Tensor, "batch 2"], config: DistributionConfig2D
-) -> Float[torch.Tensor, "batch"]:
-    """Evaluate separable 2D mixture at given locations"""
-    # locations: [batch, 2]
-    theta1, theta2 = locations[:, 0], locations[:, 1]
+    locations: Float[torch.Tensor, "num_points 2"], config: DistributionConfig2D
+) -> Float[torch.Tensor, "batch num_points"]:
+    """Evaluate batched separable 2D mixture at given locations"""
+    # Extract angles for each dimension
+    theta1_locations = locations[:, 0:1]  # [num_points, 1]
+    theta2_locations = locations[:, 1:2]  # [num_points, 1]
 
-    device = locations.device
-    dtype = locations.dtype
+    # Evaluate marginal distributions
+    density1 = evaluate_mixture_1d(
+        theta1_locations, config.marginal(0)
+    )  # [batch, num_points]
+    density2 = evaluate_mixture_1d(
+        theta2_locations, config.marginal(1)
+    )  # [batch, num_points]
 
-    density1 = evaluate_mixture_1d(theta1.unsqueeze(1), config.marginal(0))  # [batch]
-    density2 = evaluate_mixture_1d(theta2.unsqueeze(1), config.marginal(1))  # [batch]
+    # Compute product (separable distribution)
+    density = density1 * density2  # [batch, num_points]
 
-    density = density1 * density2  # Outer product for 2D mixture
-    density /= density.sum()
-    return density.to(device=device, dtype=dtype)
+    # Normalize each batch element
+    density = density / density.sum(dim=1, keepdim=True)
+
+    return density
 
 
 class InputGenerator(ABC):
+    """Base class for batched input generators"""
 
     def __init__(
         self,
@@ -111,6 +324,31 @@ class InputGenerator(ABC):
         excitatory_third_factor_config: DistributionConfig,
         inhibitory_third_factor_config: DistributionConfig,
     ):
+        # Validate that all configs have compatible batch sizes
+        configs = [
+            probability_config,
+            density_config,
+            gain_config,
+            width_config,
+            excitatory_third_factor_config,
+            inhibitory_third_factor_config,
+        ]
+        batch_sizes = [config.batch_size for config in configs]
+        final_batch_size = max(batch_sizes)
+
+        # Validate compatibility for broadcasting
+        if (
+            final_batch_size != 1
+            and parameters.batch_size != 1
+            and final_batch_size != parameters.batch_size
+        ):
+            raise ValueError(
+                f"Config batch size {final_batch_size} is not compatible with "
+                f"simulation batch size {parameters.batch_size}. "
+                "One must be 1 for broadcasting, or they must be equal."
+            )
+
+        # Store configs
         self.probability_config = probability_config
         self.density_config = density_config
         self.gain_config = gain_config
@@ -118,37 +356,51 @@ class InputGenerator(ABC):
         self.excitatory_third_factor_config = excitatory_third_factor_config
         self.inhibitory_third_factor_config = inhibitory_third_factor_config
 
+        # Store parameters
         self.parameters = parameters
+        self.batch_size = max(final_batch_size, parameters.batch_size)
         self.N_E = parameters.N_E
         self.num_stimuli = parameters.num_stimuli
         self.tuning_width = parameters.tuning_width
         self.device = parameters.device
         self.dtype = parameters.dtype
 
-        # Initialise locations and pre-compute distance matrix
-        self.neuron_locations = self._initialise_neuron_locations()
-        self.stimuli_locations = self._initialise_stimuli_locations()
-        self.distances = self._precompute_distances()
+        # Initialize locations (computed once, then broadcasted as needed)
+        self.neuron_locations = (
+            self._initialise_neuron_locations()
+        )  # [batch, N_E, num_dims]
+        self.stimuli_locations = (
+            self._initialise_stimuli_locations()
+        )  # [num_stimuli, num_dims]
 
-        # Initialise the gains, widths, and density
-        self.input_density = self._compute_input_density()
-        self.input_gains = self._compute_input_gains()
-        self.input_widths = self._compute_input_widths()
+        # Precompute distance matrix
+        self.distances = self._precompute_distances()  # [batch, N_E, num_stimuli]
 
-        # Initialise the third factors
-        self.excitatory_third_factor = self._compute_excitatory_third_factors()
-        self.inhibitory_third_factor = self._compute_inhibitory_third_factors()
+        # Initialize distributions (lazy broadcasting)
+        self.input_density = self._compute_input_density()  # [batch, num_stimuli]
+        self.input_gains = self._compute_input_gains()  # [batch, num_stimuli]
+        self.input_widths = self._compute_input_widths()  # [batch, num_stimuli]
+        self.excitatory_third_factor = (
+            self._compute_excitatory_third_factors()
+        )  # [batch, num_stimuli]
+        self.inhibitory_third_factor = (
+            self._compute_inhibitory_third_factors()
+        )  # [batch, num_stimuli]
 
-        # Compute the stimuli probabilities and input patterns
-        self.stimuli_probabilities = self._compute_stimuli_probabilities()
-        self.stimuli_patterns = self._compute_stimuli_patterns()
+        # Compute final outputs
+        self.stimuli_probabilities = (
+            self._compute_stimuli_probabilities()
+        )  # [batch, num_stimuli]
+        self.stimuli_patterns = (
+            self._compute_stimuli_patterns()
+        )  # [batch, N_E, num_stimuli]
 
     @abstractmethod
     @jaxtyped(typechecker=typechecked)
     def _initialise_neuron_locations(
         self,
-    ) -> Float[torch.Tensor, "{self.N_E} num_dimensions"]:
-        """Initialise neuron locations on the manifold"""
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.N_E} num_dimensions"]:
+        """Initialize neuron locations on the manifold"""
         pass
 
     @abstractmethod
@@ -156,113 +408,129 @@ class InputGenerator(ABC):
     def _initialise_stimuli_locations(
         self,
     ) -> Float[torch.Tensor, "{self.num_stimuli} num_dimensions"]:
-        """Initialise stimulus locations on the manifold"""
+        """Initialize stimulus locations on the manifold"""
         pass
 
     @jaxtyped(typechecker=typechecked)
     def _precompute_distances(
         self,
-    ) -> Float[torch.Tensor, "{self.N_E} {self.num_stimuli}"]:
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.N_E} {self.num_stimuli}"]:
+        """Precompute distance matrix between neurons and stimuli"""
         return self._compute_circular_distance(
-            self.neuron_locations, self.stimuli_locations
+            self.neuron_locations, self.stimuli_locations.unsqueeze(0)
         )
 
     @jaxtyped(typechecker=typechecked)
     def _compute_circular_distance(
         self,
-        loc_1: Float[torch.Tensor, "batch_1 num_dimensions"],
-        loc_2: Float[torch.Tensor, "batch_2 num_dimensions"],
-    ) -> Float[torch.Tensor, "batch_1 batch_2"]:
-
+        loc_1: Float[torch.Tensor, "#batch batch_1 num_dimensions"],
+        loc_2: Float[torch.Tensor, "#batch batch_2 num_dimensions"],
+    ) -> Float[torch.Tensor, "batch batch_1 batch_2"]:
+        """Compute circular distances between two sets of locations"""
+        # loc_1: [batch, batch_1, num_dims], loc_2: [batch, batch_2, num_dims]
         diff = torch.abs(
-            loc_1.unsqueeze(1) - loc_2.unsqueeze(0)
-        )  # [batch_1, batch_2, num_dimensions]
+            loc_1.unsqueeze(2) - loc_2.unsqueeze(1)
+        )  # [batch, batch_1, batch_2, num_dimensions]
+
         circular_diffs = torch.minimum(
             diff, 2 * torch.pi - diff
-        )  # [batch_1, batch_2, num_dimensions]
+        )  # [batch, batch_1, batch_2, num_dimensions]
 
-        return torch.sqrt(torch.sum(circular_diffs**2, dim=-1))  # [batch_1, batch_2]
+        return torch.sqrt(
+            torch.sum(circular_diffs**2, dim=-1)
+        )  # [batch, batch_1, batch_2]
 
     @abstractmethod
     @jaxtyped(typechecker=typechecked)
     def evaluate_mixture(
         self,
-        locations: Float[torch.Tensor, "batch num_dimensions"],
-        config: Union[DistributionConfig1D, DistributionConfig2D],
-    ) -> Float[torch.Tensor, "batch"]:
+        locations: Float[torch.Tensor, "num_points num_dimensions"],
+        config: DistributionConfig,
+    ) -> Float[torch.Tensor, "batch num_points"]:
+        """Evaluate mixture distribution at given locations"""
         pass
 
     @jaxtyped(typechecker=typechecked)
     def _compute_stimuli_probabilities(
         self,
-    ) -> Float[torch.Tensor, "{self.num_stimuli}"]:
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
+        """Compute probability of each stimulus"""
+        # Use first batch element's stimuli locations for evaluation
         return self.evaluate_mixture(self.stimuli_locations, self.probability_config)
 
     @jaxtyped(typechecker=typechecked)
-    def _compute_input_density(self) -> Float[torch.Tensor, "{self.num_stimuli}"]:
+    def _compute_input_density(
+        self,
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
         """Compute density at stimulus locations"""
         return self.evaluate_mixture(self.stimuli_locations, self.density_config)
 
     @jaxtyped(typechecker=typechecked)
-    def _compute_input_gains(self) -> Float[torch.Tensor, "{self.num_stimuli}"]:
+    def _compute_input_gains(
+        self,
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
         """Compute gains at stimulus locations"""
         gains = self.evaluate_mixture(self.stimuli_locations, self.gain_config)
-        return gains / gains.mean()
+        return gains / gains.mean(dim=-1, keepdim=True)
 
     @jaxtyped(typechecker=typechecked)
     def _compute_excitatory_third_factors(
         self,
-    ) -> Float[torch.Tensor, "{self.num_stimuli}"]:
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
         """Compute excitatory third factors at stimulus locations"""
         q_e = self.evaluate_mixture(
             self.stimuli_locations, self.excitatory_third_factor_config
         )
-        return q_e / q_e.mean()
+        return q_e / q_e.mean(dim=-1, keepdim=True)
 
     @jaxtyped(typechecker=typechecked)
     def _compute_inhibitory_third_factors(
         self,
-    ) -> Float[torch.Tensor, "{self.num_stimuli}"]:
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
         """Compute inhibitory third factors at stimulus locations"""
         q_i = self.evaluate_mixture(
             self.stimuli_locations, self.inhibitory_third_factor_config
         )
-        return q_i / q_i.mean()
+        return q_i / q_i.mean(dim=-1, keepdim=True)
 
     @jaxtyped(typechecker=typechecked)
-    def _compute_input_widths(self) -> Float[torch.Tensor, "{self.num_stimuli}"]:
+    def _compute_input_widths(
+        self,
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
         """Compute width modulation at stimulus locations"""
         inverse_widths = self.evaluate_mixture(
             self.stimuli_locations, self.width_config
         )
         widths = 1.0 / (inverse_widths + 1e-8)
-        return widths / widths.mean()
+        return widths / widths.mean(dim=-1, keepdim=True)
 
     @jaxtyped(typechecker=typechecked)
     def _compute_stimuli_patterns(
         self,
-    ) -> Float[torch.Tensor, "{self.N_E} {self.num_stimuli}"]:
-        """
-        Compute tuning curves: g(s) * h([s - l]/w(s))
-        """
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.N_E} {self.num_stimuli}"]:
+        """Compute tuning curves: g(s) * h([s - l]/w(s))"""
         # Apply width scaling: distances / widths[stimulus]
+        # distances: [batch, N_E, num_stimuli], widths: [batch, num_stimuli]
         scaled_distances = self.distances / (
-            self.tuning_width * self.input_widths.unsqueeze(0)
-        )  # [N_E, num_stimuli]
+            self.tuning_width * self.input_widths.unsqueeze(1)
+        )  # [batch, N_E, num_stimuli]
 
         # Apply wrapped Gaussian kernel
-        kernel_responses = torch.exp(-0.5 * scaled_distances**2)  # [N_E, num_stimuli]
+        kernel_responses = torch.exp(
+            -0.5 * scaled_distances**2
+        )  # [batch, N_E, num_stimuli]
 
         # Apply gains: multiply by gain[stimulus]
+        # gains: [batch, num_stimuli] -> [batch, 1, num_stimuli]
         responses = kernel_responses * self.input_gains.unsqueeze(
-            0
-        )  # [N_E, num_stimuli]
+            1
+        )  # [batch, N_E, num_stimuli]
 
         return responses
 
 
 class CircularInputGenerator(InputGenerator):
-    """Input generator for circular stimulus space S^1"""
+    """Batched input generator for circular stimulus space S^1"""
 
     def __init__(
         self,
@@ -289,44 +557,48 @@ class CircularInputGenerator(InputGenerator):
         self,
         locations: Float[torch.Tensor, "{self.num_stimuli} 1"],
         config: DistributionConfig1D,
-    ):
-        return evaluate_mixture_1d(locations=locations, config=config)
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
+        mixture = evaluate_mixture_1d(
+            eval_positions=locations, config=config
+        )  # [#batch, num_stimuli]
+
+        # Broadcast to batch size
+        return mixture.expand(self.batch_size, -1)  # [batch, num_stimuli]
 
     @jaxtyped(typechecker=typechecked)
     def _initialise_stimuli_locations(
         self,
     ) -> Float[torch.Tensor, "{self.num_stimuli} 1"]:
-        """Initialize uniform stimulus grid"""
-        angles = torch.linspace(
+        """Initialize uniform stimulus grid (same for all batch elements)"""
+        stimuli_locations = torch.linspace(
             -torch.pi,
             torch.pi,
             self.num_stimuli + 1,
             device=self.device,
             dtype=self.dtype,
         )[:-1]
-        return angles.unsqueeze(-1)  # [num_stimuli, 1]
+
+        return stimuli_locations.unsqueeze(-1)
 
     @jaxtyped(typechecker=typechecked)
-    def _initialise_neuron_locations(self) -> Float[torch.Tensor, "{self.N_E} 1"]:
+    def _initialise_neuron_locations(
+        self,
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.N_E} 1"]:
         """Initialize neuron locations using inverse CDF of density"""
         # Create uniform grid in [0, 1)
         uniform_grid = torch.linspace(
             0, 1, self.N_E + 1, device=self.device, dtype=self.dtype
         )[:-1]
 
-        # Apply inverse CDF to get angles in [-π, π)
-        if self.density_config.mixing_parameter == 0:
-            # Pure uniform case
-            angles = 2 * torch.pi * uniform_grid - torch.pi
-        else:
-            # Need to compute inverse CDF numerically
-            angles = torch.tensor(
-                [inverse_cdf_1d(u.item(), self.density_config) for u in uniform_grid],
-                device=self.device,
-                dtype=self.dtype,
-            )
+        # Compute inverse CDF efficiently for batched density config
+        angles_batch = compute_unique_inverse_cdf_1d(
+            uniform_grid, self.density_config
+        )  # [#batch, N_E]
 
-        return angles.unsqueeze(-1)  # [N_E, 1]
+        # Ensure that the leading dimension is batch rather than 1
+        angles_batch = angles_batch.expand(self.batch_size, -1)  # [batch, N_E]
+
+        return angles_batch.unsqueeze(-1)  # [batch, N_E, 1]
 
 
 class TorusInputGenerator(InputGenerator):
@@ -370,49 +642,47 @@ class TorusInputGenerator(InputGenerator):
         self,
         locations: Float[torch.Tensor, "{self.num_stimuli} 2"],
         config: DistributionConfig2D,
-    ):
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
         return evaluate_mixture_2d(locations=locations, config=config)
 
     @jaxtyped(typechecker=typechecked)
-    def _initialise_neuron_locations(self) -> Float[torch.Tensor, "{self.N_E} 2"]:
+    def _initialise_neuron_locations(
+        self,
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.N_E} 2"]:
         """Initialize neuron locations using separable inverse CDF"""
         # Create uniform grids for each dimension
         uniform_grid = torch.linspace(
             0, 1, self.N_E_sqrt + 1, device=self.device, dtype=self.dtype
         )[:-1]
 
-        if self.density_config.mixing_parameter == 0:
-            angles_0 = 2 * torch.pi * uniform_grid - torch.pi
-            angles_1 = 2 * torch.pi * uniform_grid - torch.pi
-        else:
-            angles_0 = torch.tensor(
-                [
-                    inverse_cdf_1d(u.item(), self.density_config.marginal(0))
-                    for u in uniform_grid
-                ],
-                device=self.device,
-                dtype=self.dtype,
-            )
-            angles_1 = torch.tensor(
-                [
-                    inverse_cdf_1d(u.item(), self.density_config.marginal(1))
-                    for u in uniform_grid
-                ],
-                device=self.device,
-                dtype=self.dtype,
-            )
+        # Compute inverse CDF for each marginal
+        angles_0_batch = compute_unique_inverse_cdf_1d(
+            uniform_grid, self.density_config.marginal(0)
+        )  # [batch, N_E_sqrt]
 
-        # Create 2D grid via outer product
-        theta0_grid, theta1_grid = torch.meshgrid(angles_0, angles_1, indexing="ij")
-        return torch.stack(
-            [theta0_grid.flatten(), theta1_grid.flatten()], dim=-1
-        )  # [N_E, 2]
+        angles_1_batch = compute_unique_inverse_cdf_1d(
+            uniform_grid, self.density_config.marginal(1)
+        )  # [batch, N_E_sqrt]
+
+        # Create 2D grids for each batch element
+        batch_neuron_locations = []
+        for b in range(self.batch_size):
+            # Create 2D grid via outer product for this batch element
+            theta0_grid, theta1_grid = torch.meshgrid(
+                angles_0_batch[b], angles_1_batch[b], indexing="ij"
+            )
+            locations_2d = torch.stack(
+                [theta0_grid.flatten(), theta1_grid.flatten()], dim=-1
+            )  # [N_E, 2]
+            batch_neuron_locations.append(locations_2d)
+
+        return torch.stack(batch_neuron_locations, dim=0)  # [batch, N_E, 2]
 
     @jaxtyped(typechecker=typechecked)
     def _initialise_stimuli_locations(
         self,
     ) -> Float[torch.Tensor, "{self.num_stimuli} 2"]:
-        """Initialise uniform stimulus grid"""
+        """Initialize uniform stimulus grid (same for all batch elements)"""
         angles = torch.linspace(
             -torch.pi,
             torch.pi,
@@ -420,7 +690,10 @@ class TorusInputGenerator(InputGenerator):
             device=self.device,
             dtype=self.dtype,
         )[:-1]
+
         theta0_grid, theta1_grid = torch.meshgrid(angles, angles, indexing="ij")
-        return torch.stack(
+        stimuli_locations = torch.stack(
             [theta0_grid.flatten(), theta1_grid.flatten()], dim=-1
         )  # [num_stimuli, 2]
+
+        return stimuli_locations
