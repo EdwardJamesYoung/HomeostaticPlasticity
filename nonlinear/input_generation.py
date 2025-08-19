@@ -9,6 +9,7 @@ import scipy.stats
 import scipy.optimize
 from params import SimulationParameters
 from itertools import product
+from utils import compute_circular_distance
 
 
 @jaxtyped(typechecker=typechecked)
@@ -416,29 +417,9 @@ class InputGenerator(ABC):
         self,
     ) -> Float[torch.Tensor, "{self.batch_size} {self.N_E} {self.num_stimuli}"]:
         """Precompute distance matrix between neurons and stimuli"""
-        return self._compute_circular_distance(
+        return compute_circular_distance(
             self.neuron_locations, self.stimuli_locations.unsqueeze(0)
         )
-
-    @jaxtyped(typechecker=typechecked)
-    def _compute_circular_distance(
-        self,
-        loc_1: Float[torch.Tensor, "#batch batch_1 num_dimensions"],
-        loc_2: Float[torch.Tensor, "#batch batch_2 num_dimensions"],
-    ) -> Float[torch.Tensor, "batch batch_1 batch_2"]:
-        """Compute circular distances between two sets of locations"""
-        # loc_1: [batch, batch_1, num_dims], loc_2: [batch, batch_2, num_dims]
-        diff = torch.abs(
-            loc_1.unsqueeze(2) - loc_2.unsqueeze(1)
-        )  # [batch, batch_1, batch_2, num_dimensions]
-
-        circular_diffs = torch.minimum(
-            diff, 2 * torch.pi - diff
-        )  # [batch, batch_1, batch_2, num_dimensions]
-
-        return torch.sqrt(
-            torch.sum(circular_diffs**2, dim=-1)
-        )  # [batch, batch_1, batch_2]
 
     @abstractmethod
     @jaxtyped(typechecker=typechecked)

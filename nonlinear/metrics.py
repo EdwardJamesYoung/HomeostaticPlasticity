@@ -7,10 +7,8 @@ from params import SimulationParameters
 from input_generation import InputGenerator
 from params import SimulationParameters
 from utils import (
-    circular_discrepancy,
     circular_kde,
     circular_smooth_huber,
-    power_law_regression,
 )
 
 
@@ -129,210 +127,62 @@ def _compute_circular_width_2d(
     return widths
 
 
-def compute_population_response_metrics(
-    rates: Float[torch.Tensor, "batch N_I num_latents"],
+@jaxtyped(typechecker=typechecked)
+def response_curves(
+    rates: Float[torch.Tensor, "batch N_I num_stimuli"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
-) -> dict[str, Any]:
-    r"""For consistency, everything here is going to be in torch. Then we'll convert to numpy when we return."""
-
-    batch_size = parameters.batch_size
-    N_E = parameters.N_E
+) -> Float[torch.Tensor, "batch N_I num_stimuli"]:
     N_I = parameters.N_I
 
-    stimuli_probabilities = input_generator.stimuli_probabilities  # [num_latents]
-    # If the input generator has latent_stimuli_probabilities, use those instead
-    if hasattr(input_generator, "latent_stimuli_probabilities"):
-        stimuli_probabilities = input_generator.latent_stimuli_probabilities
-
-    stimuli_modulation_curve = input_generator.modulation_curve  # [num_latents]
+    stimuli_locations = input_generator.stimuli_locations  # [num_stimuli, num_dims]
 
     argmax_rates = rates.argmax(
         axis=-1
-    )  # [batch, N_I] (indices of max response in num_latents)
-    stimulus_space = input_generator.stimuli_positions.squeeze()  # [num_latents]
-    argmax_stimuli = stimulus_space[
-        argmax_rates
-    ].flatten()  # [batch, N_I] (stimuli of max response)
-    max_rates, _ = rates.max(axis=-1)  # [batch, N_I]
+    )  # [batch, N_I] (indices of max response in num_stimuli)
+    # Expand argmax_indices to match stimuli_locations dimensions
+    argmax_expanded = argmax_rates.unsqueeze(-1).expand(
+        -1, -1, stimuli_locations.shape[-1]
+    )  # [batch, N_I, num_dims]
+    argmax_stimuli = torch.gather(
+        stimuli_locations, dim=1, index=argmax_expanded
+    )  # [batch, N_I, num_dims]
+    max_rates = rates.max(axis=-1)[0]  # [batch, N_I]
 
-    total_rate = rates.sum(dim=(0, 1))  # [num_latents]
-
-    bw_multiplier = (batch_size * N_I) ** (-0.2)
+    bw_multiplier = N_I ** (-0.2)
     max_rate_range = max_rates.max() - max_rates.min()
 
     gains = circular_smooth_huber(
-        argmax_stimuli.flatten(),
-        max_rates.flatten(),
-        stimulus_space,
+        argmax_stimuli,
+        max_rates,
+        stimuli_locations.unsqueeze(0),  # [1, num_stimuli, num_dims]
         bw=bw_multiplier * 0.4,
         delta=0.25 * max_rate_range.item(),
-    )  # [num_latents]
+    )  # [batch, num_stimuli]
 
     # Find the width at half height of the tuning curve
     tuning_curve_widths = compute_tuning_curve_widths(
-        rates, stimulus_space
+        rates, stimuli_locations
     )  # [batch, N_I]
     width_range = tuning_curve_widths.max() - tuning_curve_widths.min()
 
     widths = circular_smooth_huber(
-        argmax_stimuli.flatten(),
-        tuning_curve_widths.flatten(),
-        stimulus_space,
+        argmax_stimuli,
+        tuning_curve_widths,
+        stimuli_locations,
         bw=bw_multiplier * 0.4,
         delta=0.25 * width_range.item(),
-    )
+    )  # [batch, num_stimuli]
 
     density = circular_kde(
-        argmax_stimuli.flatten(), stimulus_space, bw=bw_multiplier * 0.2
-    )  # [num_latents]
+        argmax_stimuli, stimuli_locations, bw=bw_multiplier * 0.2
+    )  # [batch, num_stimuli]
 
-    population_response_metrics = {
-        "c": torch.ones_like(total_rate),
-        "i": stimuli_modulation_curve,
-        "i^2": stimuli_modulation_curve**2,
-        "p": stimuli_probabilities,
-        "p^{-1/alpha}": stimuli_probabilities ** (-1 / parameters.homeostasis_power),
-        "p i": stimuli_probabilities * stimuli_modulation_curve,
-        "p^{2/alpha} i^2": (
-            stimuli_probabilities ** (2 / parameters.homeostasis_power)
-            * stimuli_modulation_curve**2
-        ),
-        "p^{1/alpha} i^2": (
-            stimuli_probabilities ** (1 / parameters.homeostasis_power)
-            * stimuli_modulation_curve**2
-        ),
-        "r": total_rate,
-        "d": density,
-        "g": gains,
-        "w": widths,
-        "g d": density * gains,
-        "g^2 d": density * (gains**2),
+    return {
+        "curves/gains": gains,
+        "curves/widths": widths,
+        "curves/density": density,
     }
-
-    # Normalise the curves to sum to 1
-    population_response_metrics = {
-        key: renormalise(value) for key, value in population_response_metrics.items()
-    }
-
-    population_response_metrics.update(
-        {
-            "rates": rates,
-            "argmax_stimuli": argmax_stimuli,
-            "average_rates": torch.einsum(
-                "bij,j->bi", rates, stimuli_probabilities
-            ),  # [batch, N_I]
-            "stimulus_space": stimulus_space,
-        }
-    )
-
-    # Convert to numpy arrays for logging
-    population_response_metrics = {
-        key: value.detach().cpu().numpy()
-        for key, value in population_response_metrics.items()
-    }
-
-    return population_response_metrics
-
-
-@jaxtyped(typechecker=typechecked)
-def compute_discrepancies(
-    population_response_metrics: dict[str, Any],
-) -> dict[str, float]:
-
-    stable_curves_keys = [
-        "c",
-        "i",
-        "i^2",
-        "p",
-        "p^{-1/alpha}",
-        "p i",
-        "p^{2/alpha} i^2",
-        "p^{1/alpha} i^2",
-    ]
-
-    non_stable_curves_keys = {
-        "r",
-        "d",
-        "g",
-        "g d",
-        "g^2 d",
-        "c",
-    }
-
-    # Extract the curves from the population_response_metrics dictionary
-    stable_curves = {
-        key: population_response_metrics[key] for key in stable_curves_keys
-    }
-    non_stable_curves = {
-        key: population_response_metrics[key] for key in non_stable_curves_keys
-    }
-
-    # Compute the discrepancies between stable curves and non-stable curves
-    discrepancies = {}
-
-    # Loop through each stable curve
-    for stable_curve_name, stable_curve in stable_curves.items():
-        # Compare with each non-stable curve
-        for non_stable_curve_name, non_stable_curve in non_stable_curves.items():
-            # Compute the circular discrepancy between the two curves
-            discrepancy = circular_discrepancy(stable_curve, non_stable_curve)
-            # Store the discrepancy in the dictionary
-            discrepancies[f"diff/diff({stable_curve_name},{non_stable_curve_name})"] = (
-                discrepancy
-            )
-
-    return discrepancies
-
-
-@jaxtyped(typechecker=typechecked)
-def compute_regressions(
-    population_response_metrics: dict[str, Any],
-) -> dict[str, float]:
-
-    stable_curves_keys = [
-        "c",
-        "i",
-        "p",
-    ]
-
-    non_stable_curves_keys = {
-        "r",
-        "g",
-        "d",
-        "c",
-        "w",
-    }
-
-    # Extract the curves from the population_response_metrics dictionary
-    stable_curves = {
-        key: population_response_metrics[key] for key in stable_curves_keys
-    }
-    non_stable_curves = {
-        key: population_response_metrics[key] for key in non_stable_curves_keys
-    }
-
-    # Compute the discrepancies between stable curves and non-stable curves
-    regression_stats = {}
-
-    # Loop through each stable curve
-    for stable_curve_name, stable_curve in stable_curves.items():
-        # Compare with each non-stable curve
-        for non_stable_curve_name, non_stable_curve in non_stable_curves.items():
-            # Compute the circular discrepancy between the two curves
-            gamma, r_squared = power_law_regression(
-                stable_curve,
-                non_stable_curve,
-            )
-            # Store the discrepancy in the dictionary
-            regression_stats[
-                f"reg/gamma({stable_curve_name},{non_stable_curve_name})"
-            ] = gamma
-            regression_stats[
-                f"reg/r_squared({stable_curve_name},{non_stable_curve_name})"
-            ] = r_squared
-
-    return regression_stats
 
 
 @jaxtyped(typechecker=typechecked)
@@ -347,7 +197,6 @@ def dynamics_log(
     iteration_step: int,
 ) -> dict[str, float]:
     dt = parameters.dt
-    quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]
 
     # Calculate metrics per batch item
     recurrent_update_magnitude = torch.mean(torch.abs(dM), dim=(-2, -1)) / dt
@@ -367,22 +216,14 @@ def dynamics_log(
     )
 
     metrics_to_log = {
-        "recurrent_update_magnitude": recurrent_update_magnitude,
-        "recurrent_percentage_change": recurrent_percentage_change,
-        "feedforward_update_magnitude": feedforward_update_magnitude,
-        "feedforward_percentage_change": feedforward_percentage_change,
-        "excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
-        "average_excitatory_mass": average_excitatory_mass,
-        "excitatory_mass_percentage_change": excitatory_mass_percentage_change,
+        "dynamics/recurrent_update_magnitude": recurrent_update_magnitude,
+        "dynamics/recurrent_percentage_change": recurrent_percentage_change,
+        "dynamics/feedforward_update_magnitude": feedforward_update_magnitude,
+        "dynamics/feedforward_percentage_change": feedforward_percentage_change,
+        "dynamics/excitatory_mass_update_magnitude": excitatory_mass_update_magnitude,
+        "dynamics/average_excitatory_mass": average_excitatory_mass,
+        "dynamics/excitatory_mass_percentage_change": excitatory_mass_percentage_change,
+        "time": dt * iteration_step,
     }
 
-    log_dict = {}
-    for name, metric_tensor in metrics_to_log.items():
-        for q in quantiles:
-            q_value = torch.quantile(metric_tensor, q).item()
-            key = f"dynamics/{name}_q{int(q*100)}"
-            log_dict[key] = q_value
-
-    log_dict["time"] = dt * iteration_step
-
-    return log_dict
+    return metrics_to_log

@@ -26,6 +26,22 @@ def circular_discrepancy(
 
 
 @jaxtyped(typechecker=typechecked)
+def compute_circular_distance(
+    loc_1: Float[torch.Tensor, "#batch batch_1 num_dimensions"],
+    loc_2: Float[torch.Tensor, "#batch batch_2 num_dimensions"],
+) -> Float[torch.Tensor, "batch batch_1 batch_2"]:
+    diff = torch.abs(
+        loc_1.unsqueeze(2) - loc_2.unsqueeze(1)
+    )  # [batch, batch_1, batch_2, num_dimensions]
+
+    circular_diffs = torch.minimum(
+        diff, 2 * torch.pi - diff
+    )  # [batch, batch_1, batch_2, num_dimensions]
+
+    return torch.sqrt(torch.sum(circular_diffs**2, dim=-1))  # [batch, batch_1, batch_2]
+
+
+@jaxtyped(typechecker=typechecked)
 def power_law_regression(
     x: Float[np.ndarray, "num_latents"],
     y: Float[np.ndarray, "num_latents"],
@@ -74,76 +90,86 @@ def power_law_regression(
 
 @jaxtyped(typechecker=typechecked)
 def circular_kde(
-    argmax_rates: Float[torch.Tensor, "N_I"],
-    stimulus_space: Float[torch.Tensor, "num_latents"],
+    data_points: Float[torch.Tensor, "#batch N_points num_dims"],
+    eval_points: Float[torch.Tensor, "#batch N_eval num_dims"],
     bw: float = 0.25,
-) -> Float[torch.Tensor, "num_latents"]:
-    extended_data = torch.concatenate(
-        [
-            argmax_rates - 2 * torch.pi,
-            argmax_rates,
-            argmax_rates + 2 * torch.pi,
-        ]
-    )
+) -> Float[torch.Tensor, "#batch N_eval"]:
+    # Compute circular distances between eval points and data points
+    distances = compute_circular_distance(
+        eval_points, data_points
+    )  # [batch, N_eval, N_points]
 
-    # Compute KDE on extended data
-    kde = stats.gaussian_kde(extended_data.cpu(), bw_method=bw)
-    y = kde(stimulus_space.cpu())
-    y = y / y.sum()  # Normalise the density
+    # Apply Gaussian kernel
+    kernel_values = torch.exp(-0.5 * (distances / bw) ** 2)  # [batch, N_eval, N_points]
 
-    y = torch.tensor(y, device=argmax_rates.device)
-    return y
+    # Average over data points
+    kde_values = kernel_values.mean(dim=-1)  # [batch, N_eval]
+
+    # Normalize each batch element to sum to 1
+    kde_values = kde_values / kde_values.sum(dim=-1, keepdim=True)
+
+    return kde_values
 
 
 @jaxtyped(typechecker=typechecked)
 def circular_smooth_huber(
-    argmax_stimuli: Float[torch.Tensor, "N_I"],
-    max_rates: Float[torch.Tensor, "N_I"],
-    stimulus_space: Float[torch.Tensor, "num_latents"],
+    data_points: Float[torch.Tensor, "#batch N_points num_dims"],
+    data_values: Float[torch.Tensor, "#batch N_points"],
+    eval_points: Float[torch.Tensor, "#batch N_eval num_dims"],
     bw: float = 0.25,
-    delta: float = 1.0,  # Huber threshold parameter
-) -> Float[torch.Tensor, "num_latents"]:
-    diff = torch.abs(
-        stimulus_space.unsqueeze(0) - argmax_stimuli.unsqueeze(1)
-    )  # [N_I, num_latents]
-    diff = torch.minimum(diff, 2 * torch.pi - diff)  # [N_I, num_latents]
-    gaussians = torch.exp(-0.5 * (diff / bw) ** 2) / (
-        bw * np.sqrt(2 * torch.pi)
-    )  # [N_I, num_latents]
-    weights = gaussians / gaussians.sum(dim=0)  # [N_I, num_latents]
+    delta: float = 1.0,
+    max_iter: int = 10,
+    tolerance: float = 1e-6,
+) -> Float[torch.Tensor, "#batch N_eval"]:
 
-    # For each stimulus point, compute weighted center (similar to weighted mean)
-    weighted_center = torch.sum(
-        max_rates.unsqueeze(1) * weights, dim=0
-    )  # [num_latents]
+    # Compute circular distances
+    distances = compute_circular_distance(
+        eval_points, data_points
+    )  # [batch, N_eval, N_points]
 
-    # Compute absolute deviations from the weighted center
-    abs_deviations = torch.abs(
-        max_rates.unsqueeze(1) - weighted_center.unsqueeze(0)
-    )  # [N_I, num_latents]
+    # Compute Gaussian kernel weights (normalized for each eval point)
+    kernel_weights = torch.exp(
+        -0.5 * (distances / bw) ** 2
+    )  # [batch, N_eval, N_points]
+    kernel_weights = kernel_weights / (
+        kernel_weights.sum(dim=-1, keepdim=True) + 1e-8
+    )  # Normalise across each evaluation point
 
-    # Apply Huber function to deviations
-    huber_weights = torch.zeros_like(abs_deviations)
+    # Initialize with Nadaraya-Watson estimates
+    huber_estimates = torch.sum(
+        kernel_weights * data_values.unsqueeze(1), dim=-1
+    )  # [batch, N_eval]
 
-    # For small deviations, use squared error (behaves like mean)
-    small_deviation_mask = abs_deviations <= delta
-    huber_weights[small_deviation_mask] = weights[small_deviation_mask]
+    for _ in range(max_iter):
+        residuals = data_values.unsqueeze(1) - huber_estimates.unsqueeze(
+            -1
+        )  # [batch, N_eval, N_points]
 
-    # For large deviations, use absolute error (behaves like median)
-    large_deviation_mask = abs_deviations > delta
-    huber_weights[large_deviation_mask] = weights[large_deviation_mask] * (
-        delta / abs_deviations[large_deviation_mask]
-    )
+        # Compute Huber weights: w_i = min(1, delta / |r_i|)
+        abs_residuals = torch.abs(residuals)
+        huber_weights = torch.minimum(
+            torch.ones_like(abs_residuals), delta / (abs_residuals + 1e-8)
+        )  # [batch, N_eval, N_points]
 
-    # Normalize Huber weights
-    huber_weights = huber_weights / huber_weights.sum(dim=0)
+        # Combine kernel weights and Huber weights
+        combined_weights = kernel_weights * huber_weights  # [batch, N_eval, N_points]
+        combined_weights_normalised = combined_weights / (
+            combined_weights.sum(dim=-1, keepdim=True) + 1e-8
+        )  # [batch, N_eval, N_points]
 
-    # Compute final estimate using Huber weights
-    result = torch.sum(max_rates.unsqueeze(1) * huber_weights, dim=0)  # [num_latents]
+        # Update estimates
+        new_huber_estimates = torch.sum(
+            combined_weights_normalised * data_values.unsqueeze(1), dim=-1
+        )  # [batch, N_eval]
 
-    # Normalize the result
-    result = (result / result.sum()).squeeze()
-    return result
+        # Check convergence
+        max_change = torch.max(torch.abs(new_huber_estimates - huber_estimates))
+        if max_change < tolerance:
+            break
+
+        huber_estimates = new_huber_estimates
+
+    return huber_estimates
 
 
 @jaxtyped(typechecker=typechecked)
