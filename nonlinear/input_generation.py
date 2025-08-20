@@ -335,19 +335,7 @@ class InputGenerator(ABC):
             inhibitory_third_factor_config,
         ]
         batch_sizes = [config.batch_size for config in configs]
-        final_batch_size = max(batch_sizes)
-
-        # Validate compatibility for broadcasting
-        if (
-            final_batch_size != 1
-            and parameters.batch_size != 1
-            and final_batch_size != parameters.batch_size
-        ):
-            raise ValueError(
-                f"Config batch size {final_batch_size} is not compatible with "
-                f"simulation batch size {parameters.batch_size}. "
-                "One must be 1 for broadcasting, or they must be equal."
-            )
+        self.batch_size = max(batch_sizes)
 
         # Store configs
         self.probability_config = probability_config
@@ -359,7 +347,6 @@ class InputGenerator(ABC):
 
         # Store parameters
         self.parameters = parameters
-        self.batch_size = max(final_batch_size, parameters.batch_size)
         self.N_E = parameters.N_E
         self.num_stimuli = parameters.num_stimuli
         self.tuning_width = parameters.tuning_width

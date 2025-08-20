@@ -27,18 +27,18 @@ def circular_discrepancy(
 
 @jaxtyped(typechecker=typechecked)
 def compute_circular_distance(
-    loc_1: Float[torch.Tensor, "#batch batch_1 num_dimensions"],
-    loc_2: Float[torch.Tensor, "#batch batch_2 num_dimensions"],
-) -> Float[torch.Tensor, "batch batch_1 batch_2"]:
+    loc_1: Float[torch.Tensor, "... batch_1 num_dimensions"],
+    loc_2: Float[torch.Tensor, "... batch_2 num_dimensions"],
+) -> Float[torch.Tensor, "... batch_1 batch_2"]:
     diff = torch.abs(
-        loc_1.unsqueeze(2) - loc_2.unsqueeze(1)
-    )  # [batch, batch_1, batch_2, num_dimensions]
+        loc_1.unsqueeze(-2) - loc_2.unsqueeze(-3)
+    )  # [..., batch_1, batch_2, num_dimensions]
 
     circular_diffs = torch.minimum(
         diff, 2 * torch.pi - diff
-    )  # [batch, batch_1, batch_2, num_dimensions]
+    )  # [..., batch_1, batch_2, num_dimensions]
 
-    return torch.sqrt(torch.sum(circular_diffs**2, dim=-1))  # [batch, batch_1, batch_2]
+    return torch.sqrt(torch.sum(circular_diffs**2, dim=-1))  # [..., batch_1, batch_2]
 
 
 @jaxtyped(typechecker=typechecked)
@@ -90,20 +90,22 @@ def power_law_regression(
 
 @jaxtyped(typechecker=typechecked)
 def circular_kde(
-    data_points: Float[torch.Tensor, "#batch N_points num_dims"],
-    eval_points: Float[torch.Tensor, "#batch N_eval num_dims"],
+    data_points: Float[torch.Tensor, "#repeats #batch N_points num_dims"],
+    eval_points: Float[torch.Tensor, "#repeats #batch N_eval num_dims"],
     bw: float = 0.25,
-) -> Float[torch.Tensor, "#batch N_eval"]:
+) -> Float[torch.Tensor, "#repeats #batch N_eval"]:
     # Compute circular distances between eval points and data points
     distances = compute_circular_distance(
         eval_points, data_points
-    )  # [batch, N_eval, N_points]
+    )  # [repeats, batch, N_eval, N_points]
 
     # Apply Gaussian kernel
-    kernel_values = torch.exp(-0.5 * (distances / bw) ** 2)  # [batch, N_eval, N_points]
+    kernel_values = torch.exp(
+        -0.5 * (distances / bw) ** 2
+    )  # [repeats, batch, N_eval, N_points]
 
     # Average over data points
-    kde_values = kernel_values.mean(dim=-1)  # [batch, N_eval]
+    kde_values = kernel_values.mean(dim=-1)  # [repeats, batch, N_eval]
 
     # Normalize each batch element to sum to 1
     kde_values = kde_values / kde_values.sum(dim=-1, keepdim=True)
@@ -113,14 +115,14 @@ def circular_kde(
 
 @jaxtyped(typechecker=typechecked)
 def circular_smooth_huber(
-    data_points: Float[torch.Tensor, "#batch N_points num_dims"],
-    data_values: Float[torch.Tensor, "#batch N_points"],
-    eval_points: Float[torch.Tensor, "#batch N_eval num_dims"],
+    data_points: Float[torch.Tensor, "#repeats #batch N_points num_dims"],
+    data_values: Float[torch.Tensor, "#repeats #batch N_points"],
+    eval_points: Float[torch.Tensor, "#repeats #batch N_eval num_dims"],
     bw: float = 0.25,
     delta: float = 1.0,
     max_iter: int = 10,
     tolerance: float = 1e-6,
-) -> Float[torch.Tensor, "#batch N_eval"]:
+) -> Float[torch.Tensor, "#repeats #batch N_eval"]:
 
     # Compute circular distances
     distances = compute_circular_distance(
@@ -137,30 +139,32 @@ def circular_smooth_huber(
 
     # Initialize with Nadaraya-Watson estimates
     huber_estimates = torch.sum(
-        kernel_weights * data_values.unsqueeze(1), dim=-1
-    )  # [batch, N_eval]
+        kernel_weights * data_values.unsqueeze(-2), dim=-1
+    )  # [repeats, batch, N_eval]
 
     for _ in range(max_iter):
-        residuals = data_values.unsqueeze(1) - huber_estimates.unsqueeze(
+        residuals = data_values.unsqueeze(-2) - huber_estimates.unsqueeze(
             -1
-        )  # [batch, N_eval, N_points]
+        )  # [repeats, batch, N_eval, N_points]
 
         # Compute Huber weights: w_i = min(1, delta / |r_i|)
         abs_residuals = torch.abs(residuals)
         huber_weights = torch.minimum(
             torch.ones_like(abs_residuals), delta / (abs_residuals + 1e-8)
-        )  # [batch, N_eval, N_points]
+        )  # [repeats, batch, N_eval, N_points]
 
         # Combine kernel weights and Huber weights
-        combined_weights = kernel_weights * huber_weights  # [batch, N_eval, N_points]
+        combined_weights = (
+            kernel_weights * huber_weights
+        )  # [repeats, batch, N_eval, N_points]
         combined_weights_normalised = combined_weights / (
             combined_weights.sum(dim=-1, keepdim=True) + 1e-8
-        )  # [batch, N_eval, N_points]
+        )  # [repeats, batch, N_eval, N_points]
 
         # Update estimates
         new_huber_estimates = torch.sum(
-            combined_weights_normalised * data_values.unsqueeze(1), dim=-1
-        )  # [batch, N_eval]
+            combined_weights_normalised * data_values.unsqueeze(-2), dim=-1
+        )  # [repeats, batch, N_eval]
 
         # Check convergence
         max_change = torch.max(torch.abs(new_huber_estimates - huber_estimates))

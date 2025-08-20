@@ -13,7 +13,7 @@ ACTIVATION_FUNCTION_MAP = {
 
 @dataclass
 class SimulationParameters:
-    batch_size: int = 1
+    repeats: int = 1
     N_E: int = 100
     N_I: int = 100
     num_stimuli: int = 100
@@ -33,10 +33,8 @@ class SimulationParameters:
     homeostasis_target: float = 1.0
     activation_function_name: str = "rectified_quadratic"
     activation_function: ActivationFunction = RectifiedQuadratic()
-    feedforward_covariance_learning: bool = False
-    recurrent_covariance_learning: bool = False
-    feedforward_voltage_learning: bool = False
-    recurrent_voltage_learning: bool = False
+    covariance_learning: bool = False
+    voltage_learning: bool = False
     log_time: float = 20.0
     random_seed: int = 0
     rate_computation_threshold: float = 1e-4

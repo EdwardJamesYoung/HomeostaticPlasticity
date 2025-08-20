@@ -1,0 +1,55 @@
+group_name: "base"
+
+base_params:
+  repeats: 1
+  N_E: 100
+  N_I: 100
+  num_stimuli: 100
+  tuning_width: 0.25
+  k_I: 25.0
+  T: 2500.0
+  dt_v: 0.05
+  tau_v: 1.0
+  dt: 0.05
+  tau_M: 1.0
+  tau_W: 4.0
+  tau_k: 20.0
+  zeta: 1.0
+  gamma: 1.0
+  homeostasis: True
+  homeostasis_power: 1.0
+  homeostasis_target: 1.0
+  activation_function_name: "rectified_quadratic"
+  covariance_learning: False
+  voltage_learning: False
+  log_time: 2.0
+  random_seed: 0
+  rate_computation_threshold: 0.0001
+  rate_computation_iterations: 10000
+
+input_params:
+  input_generator_name: "circular_input_generator"
+  probability: 
+    mixing_parameter: [0.0]
+    location: [0.0]
+    concentration: [1.0]
+  density_config:
+    mixing_parameter: [0.0]
+    location: [0.0]
+    concentration: [1.0]
+  gain_config:
+    mixing_parameter: [0.0]
+    location: [0.0]
+    concentration: [1.0]
+  width_config:
+    mixing_parameter: [0.0]
+    location: [0.0]
+    concentration: [1.0]
+  excitatory_third_factor_config:
+    mixing_parameter: [0.0]
+    location: [0.0]
+    concentration: [1.0]
+  inhibitory_third_factor_config:
+    mixing_parameter: [0.0]
+    location: [0.0]
+    concentration: [1.0]

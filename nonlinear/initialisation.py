@@ -10,11 +10,11 @@ from params import SimulationParameters
 
 @jaxtyped(typechecker=typechecked)
 def generate_initial_weights(parameters: SimulationParameters) -> tuple[
-    Float[torch.Tensor, "batch N_I N_E"],
-    Float[torch.Tensor, "batch N_I N_I"],
+    Float[torch.Tensor, "repeats N_I N_E"],
+    Float[torch.Tensor, "repeats N_I N_I"],
 ]:
     # Unpack parameters
-    batch_size = parameters.batch_size
+    repeats = parameters.repeats
     N_E = parameters.N_E
     N_I = parameters.N_I
     activation_function = parameters.activation_function
@@ -31,16 +31,16 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     ) / homeostasis_target  # Think I might need to multiply by N_E.
 
     # Draw an input weight matrix at random
-    initial_W = torch.randn(batch_size, N_I, N_E, device=device, dtype=dtype)
+    initial_W = torch.randn(repeats, N_I, N_E, device=device, dtype=dtype)
     # Take the absolute value to ensure non-negative weights
     initial_W = torch.abs(initial_W)
     # Normalise the sum of each row to be k_E
     initial_W = k_E * initial_W / torch.sum(initial_W, dim=-1, keepdim=True)
 
     # Construct M to be strongly diagonal
-    initial_M = torch.rand(batch_size, N_I, N_I, device=device, dtype=dtype) + (
+    initial_M = torch.rand(repeats, N_I, N_I, device=device, dtype=dtype) + (
         N_I
-    ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(batch_size, 1, 1)
+    ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(repeats, 1, 1)
 
     # Renormalise M
     initial_M = k_I * initial_M / torch.sum(initial_M, dim=-1, keepdim=True)

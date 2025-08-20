@@ -2,7 +2,7 @@ import torch
 import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
-from typing import Optional
+from typing import Optional, Any
 
 from input_generation import InputGenerator
 from params import SimulationParameters
@@ -12,14 +12,14 @@ from metrics import dynamics_log, curves_log
 
 @jaxtyped(typechecker=typechecked)
 def compute_firing_rates(
-    W: Float[torch.Tensor, "batch_size N_I N_E"],
-    M: Float[torch.Tensor, "batch_size N_I N_I"],
+    W: Float[torch.Tensor, "repeats batch_size N_I N_E"],
+    M: Float[torch.Tensor, "repeats batch_size N_I N_I"],
     u: Float[torch.Tensor, "batch_size N_E num_stimuli"],
     parameters: SimulationParameters,
-    v_init: Optional[Float[torch.Tensor, "batch_size N_I num_stimuli"]] = None,
+    v_init: Optional[Float[torch.Tensor, "repeats batch_size N_I num_stimuli"]] = None,
 ) -> tuple[
-    Float[torch.Tensor, "batch_size N_I num_stimuli"],
-    Float[torch.Tensor, "batch_size N_I num_stimuli"],
+    Float[torch.Tensor, "repeats batch_size N_I num_stimuli"],
+    Float[torch.Tensor, "repeats batch_size N_I num_stimuli"],
 ]:
     """
     Compute the firing rates of a neural network given the input and weight matrices.
@@ -41,7 +41,7 @@ def compute_firing_rates(
     max_iter = parameters.rate_computation_iterations
 
     # Initialise the input h and the voltage v
-    h = torch.einsum("bie,bes->bis", W, u)  # [batch_size, N_I, num_stimuli]
+    h = torch.einsum("rbie,bes->rbis", W, u)  # [repeats, batch_size, N_I, num_stimuli]
     if v_init is not None:
         v = v_init
     else:
@@ -52,8 +52,8 @@ def compute_firing_rates(
     # Iterate until the rates have converged
     while r_dot > threshold and counter < max_iter:
         inhibitory_term = torch.einsum(
-            "bij,bjs->bis", M, r
-        )  # [batch_size, N_I, num_stimuli]
+            "rbij,rbjs->rbis", M, r
+        )  # [repeats, batch_size, N_I, num_stimuli]
         v = v + (dt_v / tau_v) * (h - inhibitory_term - v)
         r_new = activation_function(v)
         r_dot = torch.mean(torch.abs(r_new - r)) / dt_v
@@ -65,11 +65,15 @@ def compute_firing_rates(
 
 @jaxtyped(typechecker=typechecked)
 def run_simulation(
-    initial_W: Float[torch.Tensor, "#batch_size N_I N_E"],
-    initial_M: Float[torch.Tensor, "#batch_size N_I N_I"],
+    initial_W: Float[torch.Tensor, "repeats N_I N_E"],
+    initial_M: Float[torch.Tensor, "repeats N_I N_I"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
-):
+) -> tuple[
+    Float[torch.Tensor, "repeats batch_size N_I N_E"],
+    Float[torch.Tensor, "repeats batch_size N_I N_I"],
+    dict[str, any],
+]:
     """
     Simulates non-linear dynamics of a neural network.
 
@@ -84,16 +88,15 @@ def run_simulation(
     Returns:
         _type_: _description_
     """
+    repeats = parameters.repeats
     N_E = parameters.N_E
     N_I = parameters.N_I
     k_I = parameters.k_I
     homeostasis = parameters.homeostasis
     homeostasis_power = parameters.homeostasis_power
     homeostasis_target = parameters.homeostasis_target
-    feedforward_covariance_learning = parameters.feedforward_covariance_learning
-    recurrent_covariance_learning = parameters.recurrent_covariance_learning
-    feedforward_voltage_learning = parameters.feedforward_voltage_learning
-    recurrent_voltage_learning = parameters.recurrent_voltage_learning
+    covariance_learning = parameters.covariance_learning
+    voltage_learning = parameters.voltage_learning
     T = parameters.T
     dt = parameters.dt
     tau_M = parameters.tau_M
@@ -106,25 +109,29 @@ def run_simulation(
 
     # === Perform checks on the input ===
 
-    batch_size = max(input_generator.batch_size, parameters.batch_size)
-
-    if initial_W.shape[0] == 1:
-        initial_W = initial_W.expand(batch_size, -1, -1)
-    if initial_M.shape[0] == 1:
-        initial_M = initial_M.expand(batch_size, -1, -1)
+    batch_size = input_generator.batch_size
+    # Repeat the initial matrices along the batch dimension
+    initial_W = initial_W.unsqueeze(1).repeat(
+        1, batch_size, 1, 1
+    )  # [repeats, batch_size, N_I, N_E]
+    initial_M = initial_M.unsqueeze(1).repeat(
+        1, batch_size, 1, 1
+    )  # [repeats, batch_size, N_I, N_I]
 
     # Verify that the input feedforward weights has the correct shape
     assert initial_W.shape == (
+        repeats,
         batch_size,
         N_I,
         N_E,
-    ), f"Initial feedforward weight matrix has wrong shape. Expected {(batch_size, N_I, N_E)}, got {initial_W.shape}"
+    ), f"Initial feedforward weight matrix has wrong shape. Expected {(repeats, batch_size, N_I, N_E)}, got {initial_W.shape}"
     # Verify that the initial recurrent weights has the correct shape
     assert initial_M.shape == (
+        repeats,
         batch_size,
         N_I,
         N_I,
-    ), f"Initial recurrent weight matrix has wrong shape. Expected {(batch_size, N_I, N_I)}, got {initial_M.shape}"
+    ), f"Initial recurrent weight matrix has wrong shape. Expected {(repeats, batch_size, N_I, N_I)}, got {initial_M.shape}"
     # Verify that the initial weight matrices are non-negative
     assert torch.all(
         initial_M >= 0
@@ -142,9 +149,9 @@ def run_simulation(
     M = M.to(device)
 
     # Initialize k_E, W_norm, and M_norm
-    k_E = torch.sum(torch.abs(W), dim=-1)  # [batch_size, N_I]
-    W_norm = torch.sum(torch.abs(W), dim=-1)  # [batch_size, N_I]
-    M_norm = torch.sum(M, dim=-1)  # [batch_size, N_I]
+    k_E = torch.sum(torch.abs(W), dim=-1)  # [repeats, batch_size, N_I]
+    W_norm = torch.sum(torch.abs(W), dim=-1)  # [repeats, batch_size, N_I]
+    M_norm = torch.sum(M, dim=-1)  # [repeats, batch_size, N_I]
 
     # Initialise the input, firing rates, and mean-firing rate
     stimuli = input_generator.stimuli_patterns  #  [batch_size, N_E, num_stimuli]
@@ -211,54 +218,42 @@ def run_simulation(
     for ii in range(total_update_steps):
         r, v = compute_firing_rates(
             W, M, stimuli, parameters, v_init=v
-        )  # [batch, N_I, num_stimuli]
+        )  # [repeats, batch, N_I, num_stimuli]
 
-        if feedforward_voltage_learning:
-            feedforward_learning_variable = v
+        if voltage_learning:
+            learning_variable = v
         else:
-            feedforward_learning_variable = r
+            learning_variable = r
 
-        if feedforward_covariance_learning:
-            feedforward_learning_signal = feedforward_learning_variable - torch.sum(
-                feedforward_learning_variable * probabilities, dim=-1
+        if covariance_learning:
+            learning_variable = learning_variable - torch.sum(
+                learning_variable * probabilities, dim=-1
             ).unsqueeze(-1)
         else:
-            feedforward_learning_signal = feedforward_learning_variable
-
-        if recurrent_voltage_learning:
-            recurrent_learning_variable = v
-        else:
-            recurrent_learning_variable = r
-
-        if recurrent_covariance_learning:
-            recurrent_learning_signal = recurrent_learning_variable - torch.sum(
-                recurrent_learning_variable * probabilities, dim=-1
-            ).unsqueeze(-1)
-        else:
-            recurrent_learning_signal = recurrent_learning_variable
+            learning_variable = learning_variable
 
         dW = torch.einsum(
-            "bij,bj,bj,bkj->bik",
-            feedforward_learning_signal,
+            "rbij,bj,bj,bkj->rbik",
+            learning_variable,
             excitatory_third_factor,
             probabilities,
             stimuli,
-        )  # [batch, N_I, N_E]
+        )  # [repeats, batch, N_I, N_E]
 
         dM = torch.einsum(
-            "bij,bj,bj,bkj->bik",
-            recurrent_learning_signal,
+            "rbij,bj,bj,rbkj->rbik",
+            learning_variable,
             inhibitory_third_factor,
             probabilities,
             r,
-        )  # [batch, N_I, N_I]
+        )  # [repeats, batch, N_I, N_I]
 
         # Update the excitatory mass
         if homeostasis:
             homeostatic_quantity = torch.einsum(
-                "bij,bj->bi", r**homeostasis_power, probabilities
+                "rbij,bj->rbi", r**homeostasis_power, probabilities
             )
-            ratio = homeostatic_quantity / homeostasis_target
+            ratio = homeostatic_quantity / (homeostasis_target**homeostasis_power)
 
             new_k_E = k_E + k_lr * (1 - ratio)
             new_k_E = torch.clamp(new_k_E, min=1e-14)
@@ -267,25 +262,29 @@ def run_simulation(
             new_k_E = k_E
 
         # Update the norms of the weight matrices:
-        W_norm = (1 - zeta * W_lr) * W_norm + (zeta * W_lr) * new_k_E  # [batch, N_I]
-        M_norm = (1 - gamma * M_lr) * M_norm + (gamma * M_lr) * k_I  # [batch, N_I]
+        W_norm = (1 - zeta * W_lr) * W_norm + (
+            zeta * W_lr
+        ) * new_k_E  # [repeats, batch, N_I]
+        M_norm = (1 - gamma * M_lr) * M_norm + (
+            gamma * M_lr
+        ) * k_I  # [repeats, batch, N_I]
 
         # Update the weight matrices:
-        new_W = W + W_lr * dW  # [batch, N_I, N_E]
-        new_M = M + M_lr * dM  # [batch, N_I, N_I]
+        new_W = W + W_lr * dW  # [repeats, batch, N_I, N_E]
+        new_M = M + M_lr * dM  # [repeats, batch, N_I, N_I]
 
         # Rectify all the weights:
-        new_M = torch.clamp(new_M, min=1e-16)  # [batch, N_I, N_I]
-        new_W = torch.clamp(new_W, min=1e-16)  # [batch, N_I, N_E]
+        new_M = torch.clamp(new_M, min=1e-16)  # [repeats, batch, N_I, N_I]
+        new_W = torch.clamp(new_W, min=1e-16)  # [repeats, batch, N_I, N_E]
 
         new_W = torch.einsum(
-            "bi,bie -> bie",
+            "rbi,rbie -> rbie",
             W_norm / (torch.sum(torch.abs(new_W), dim=-1) + 1e-12),
             new_W,
-        )  # [batch, N_I, N_E]
+        )  # [repeats, batch, N_I, N_E]
         new_M = torch.einsum(
-            "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
-        )  # [batch, N_I, N_I]
+            "rbi,rbij->rbij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
+        )  # [repeats, batch, N_I, N_I]
 
         # === Logging ===
         if (ii * dt) % log_time < dt and log_step < num_log_steps:

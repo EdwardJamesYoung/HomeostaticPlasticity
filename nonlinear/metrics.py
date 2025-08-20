@@ -14,9 +14,9 @@ from utils import (
 
 @jaxtyped(typechecker=typechecked)
 def compute_tuning_curve_widths(
-    rates: Float[torch.Tensor, "batch N_I num_stimuli"],
+    rates: Float[torch.Tensor, "repeats batch N_I num_stimuli"],
     stimulus_locations: Float[torch.Tensor, "num_stimuli num_dimensions"],
-) -> Float[torch.Tensor, "batch N_I"]:
+) -> Float[torch.Tensor, "repeats batch N_I"]:
     num_dimensions = stimulus_locations.shape[-1]
 
     if num_dimensions == 1:
@@ -29,9 +29,9 @@ def compute_tuning_curve_widths(
 
 @jaxtyped(typechecker=typechecked)
 def _compute_circular_width_1d(
-    rates: Float[torch.Tensor, "batch N_I num_stimuli"],
+    rates: Float[torch.Tensor, "repeats batch N_I num_stimuli"],
     stimulus_angles: Float[torch.Tensor, "num_stimuli"],
-) -> Float[torch.Tensor, "batch N_I"]:
+) -> Float[torch.Tensor, "repeats batch N_I"]:
     """
     Compute circular width for 1D case using circular standard deviation.
     """
@@ -71,9 +71,9 @@ def _compute_circular_width_1d(
 
 @jaxtyped(typechecker=typechecked)
 def _compute_circular_width_2d(
-    rates: Float[torch.Tensor, "batch N_I num_stimuli"],
+    rates: Float[torch.Tensor, "repeats batch N_I num_stimuli"],
     stimulus_locations: Float[torch.Tensor, "num_stimuli 2"],
-) -> Float[torch.Tensor, "batch N_I"]:
+) -> Float[torch.Tensor, "repeats batch N_I"]:
     """
     Compute circular width for 2D case using trace of circular covariance matrix.
 
@@ -129,36 +129,40 @@ def _compute_circular_width_2d(
 
 @jaxtyped(typechecker=typechecked)
 def curves_log(
-    rates: Float[torch.Tensor, "batch N_I num_stimuli"],
+    rates: Float[torch.Tensor, "repeats batch N_I num_stimuli"],
     input_generator: InputGenerator,
     parameters: SimulationParameters,
-) -> dict[str, Float[torch.Tensor, "batch num_stimuli"]]:
+) -> dict[str, Float[torch.Tensor, "repeats batch num_stimuli"]]:
     N_I = parameters.N_I
 
     stimuli_locations = input_generator.stimuli_locations  # [num_stimuli, num_dims]
 
     argmax_indices = rates.argmax(
         axis=-1
-    )  # [batch, N_I] (indices of max response in num_stimuli)
+    )  # [repeats, batch, N_I] (indices of max response in num_stimuli)
     argmax_stimuli = stimuli_locations[
         argmax_indices.view(-1)
-    ]  # [batch, N_I, num_dims]
+    ]  # [repeats, batch, N_I, num_dims]
     argmax_stimuli = argmax_stimuli.view(
-        argmax_indices.shape[0], argmax_indices.shape[1], -1
-    )  # [batch, N_I, num_dims]
+        argmax_indices.shape[0], argmax_indices.shape[1], argmax_indices.shape[2], -1
+    )  # [repeats, batch, N_I, num_dims]
 
-    max_rates = rates.max(axis=-1)[0]  # [batch, N_I]
+    max_rates = rates.max(axis=-1)[0]  # [repeats, batch, N_I]
 
     bw_multiplier = N_I ** (-0.2)
     max_rate_range = max_rates.max() - max_rates.min()
 
+    stimuli_locations_expanded = stimuli_locations.unsqueeze(0).unsqueeze(
+        0
+    )  # [1, 1, num_stimuli, num_dims]
+
     gains = circular_smooth_huber(
         argmax_stimuli,
         max_rates,
-        stimuli_locations.unsqueeze(0),  # [1, num_stimuli, num_dims]
+        stimuli_locations_expanded,  # [1, 1, num_stimuli, num_dims]
         bw=bw_multiplier * 0.4,
         delta=0.25 * max_rate_range.item(),
-    )  # [batch, num_stimuli]
+    )  # [repeats, batch, num_stimuli]
 
     # Find the width at half height of the tuning curve
     tuning_curve_widths = compute_tuning_curve_widths(
@@ -169,13 +173,13 @@ def curves_log(
     widths = circular_smooth_huber(
         argmax_stimuli,
         tuning_curve_widths,
-        stimuli_locations.unsqueeze(0),
+        stimuli_locations_expanded,
         bw=bw_multiplier * 0.4,
         delta=0.25 * width_range.item(),
     )  # [batch, num_stimuli]
 
     density = circular_kde(
-        argmax_stimuli, stimuli_locations.unsqueeze(0), bw=bw_multiplier * 0.2
+        argmax_stimuli, stimuli_locations_expanded, bw=bw_multiplier * 0.2
     )  # [batch, num_stimuli]
 
     return {
@@ -187,14 +191,14 @@ def curves_log(
 
 @jaxtyped(typechecker=typechecked)
 def dynamics_log(
-    W: Float[torch.Tensor, "batch N_I N_E"],
-    dW: Float[torch.Tensor, "batch N_I N_E"],
-    M: Float[torch.Tensor, "batch N_I N_I"],
-    dM: Float[torch.Tensor, "batch N_I N_I"],
-    k_E: Float[torch.Tensor, "batch N_I"],
-    dk_E: Float[torch.Tensor, "batch N_I"],
+    W: Float[torch.Tensor, "repeats batch N_I N_E"],
+    dW: Float[torch.Tensor, "repeats batch N_I N_E"],
+    M: Float[torch.Tensor, "repeats batch N_I N_I"],
+    dM: Float[torch.Tensor, "repeats batch N_I N_I"],
+    k_E: Float[torch.Tensor, "repeats batch N_I"],
+    dk_E: Float[torch.Tensor, "repeats batch N_I"],
     parameters: SimulationParameters,
-) -> dict[str, Float[torch.Tensor, "batch"]]:
+) -> dict[str, Float[torch.Tensor, "repeats batch"]]:
     dt = parameters.dt
 
     # Calculate metrics per batch item
