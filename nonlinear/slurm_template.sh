@@ -76,7 +76,7 @@ CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
 CONFIG_DIR="__CONFIG_DIR__"
 PATH_TO_CONFIG="${CONFIG_DIR}/${CONFIG_NAME}"
 
-CMD="python sweep.py -c $PATH_TO_CONFIG"
+CMD="python run_experiments.py $PATH_TO_CONFIG"
 #!
 ###############################################################
 ### You should not have to change anything below this line ####
