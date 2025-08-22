@@ -17,6 +17,7 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     repeats = parameters.repeats
     N_E = parameters.N_E
     N_I = parameters.N_I
+    num_stimuli = parameters.num_stimuli
     activation_function = parameters.activation_function
     homeostasis_target = parameters.homeostasis_target
     k_I = parameters.k_I
@@ -27,8 +28,9 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     torch.manual_seed(random_seed)
 
     k_E = (
-        k_I + activation_function.inverse(homeostasis_target)
-    ) / homeostasis_target  # Think I might need to multiply by N_E.
+        num_stimuli * k_I * homeostasis_target
+        + num_stimuli * activation_function.inverse(homeostasis_target)
+    )
 
     # Draw an input weight matrix at random
     initial_W = torch.randn(repeats, N_I, N_E, device=device, dtype=dtype)
@@ -38,9 +40,9 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
     initial_W = k_E * initial_W / torch.sum(initial_W, dim=-1, keepdim=True)
 
     # Construct M to be strongly diagonal
-    initial_M = torch.rand(repeats, N_I, N_I, device=device, dtype=dtype) + (
-        N_I
-    ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(repeats, 1, 1)
+    initial_M = torch.rand(repeats, N_I, N_I, device=device, dtype=dtype)  # + (
+    #     0.1 * N_I
+    # ) * torch.eye(N_I, device=device, dtype=dtype).unsqueeze(0).repeat(repeats, 1, 1)
 
     # Renormalise M
     initial_M = k_I * initial_M / torch.sum(initial_M, dim=-1, keepdim=True)

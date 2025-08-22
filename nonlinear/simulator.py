@@ -1,5 +1,4 @@
 import torch
-import wandb
 from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 from typing import Optional, Any
@@ -16,7 +15,7 @@ def compute_firing_rates(
     M: Float[torch.Tensor, "repeats batch_size N_I N_I"],
     u: Float[torch.Tensor, "batch_size N_E num_stimuli"],
     parameters: SimulationParameters,
-    v_init: Optional[Float[torch.Tensor, "repeats batch_size N_I num_stimuli"]] = None,
+    r_init: Optional[Float[torch.Tensor, "repeats batch_size N_I num_stimuli"]] = None,
 ) -> tuple[
     Float[torch.Tensor, "repeats batch_size N_I num_stimuli"],
     Float[torch.Tensor, "repeats batch_size N_I num_stimuli"],
@@ -42,23 +41,24 @@ def compute_firing_rates(
 
     # Initialise the input h and the voltage v
     h = torch.einsum("rbie,bes->rbis", W, u)  # [repeats, batch_size, N_I, num_stimuli]
-    if v_init is not None:
-        v = v_init
+    if r_init is not None:
+        r = r_init
     else:
-        v = torch.zeros_like(h)
-    r = activation_function(v)
-    r_dot = float("inf")
+        r = parameters.homeostasis_target * torch.ones_like(h)
+    v = activation_function.inverse(r)
+    v_dot = float("inf")
     counter = 0
     # Iterate until the rates have converged
-    while r_dot > threshold and counter < max_iter:
+    while v_dot > threshold and counter < max_iter:
         inhibitory_term = torch.einsum(
             "rbij,rbjs->rbis", M, r
         )  # [repeats, batch_size, N_I, num_stimuli]
-        v = v + (dt_v / tau_v) * (h - inhibitory_term - v)
-        r_new = activation_function(v)
-        r_dot = torch.mean(torch.abs(r_new - r)) / dt_v
-        r = r_new
+        v_new = v + (dt_v / tau_v) * (h - inhibitory_term - v)
+        r = activation_function(v_new)
+        v_dot = torch.mean(torch.abs(v_new - v)) / dt_v
+        v = v_new
         counter += 1
+    print(f"Converged after {counter} iterations.")
 
     return r, v
 
@@ -173,7 +173,7 @@ def run_simulation(
     num_log_steps = int(T / log_time) + 1  # +1 for initial step
 
     # Compute initial metrics
-    r, v = compute_firing_rates(W, M, stimuli, parameters, v_init=None)
+    r, v = compute_firing_rates(W, M, stimuli, parameters, r_init=None)
 
     initial_log_dict = {}
     initial_log_dict.update(
@@ -194,6 +194,7 @@ def run_simulation(
             parameters=parameters,
         )
     )
+    initial_log_dict["rates"] = r.cpu()
 
     # Initialize tracking tensors for all metrics (on CPU)
     metrics_over_time = {}
@@ -217,7 +218,7 @@ def run_simulation(
 
     for ii in range(total_update_steps):
         r, v = compute_firing_rates(
-            W, M, stimuli, parameters, v_init=v
+            W, M, stimuli, parameters, r_init=r
         )  # [repeats, batch, N_I, num_stimuli]
 
         if voltage_learning:
@@ -313,6 +314,7 @@ def run_simulation(
                 metrics_over_time[key][log_step] = value.detach().cpu()
 
             metrics_over_time["time"][log_step] = log_time * log_step
+            metrics_over_time["rates"][log_step] = r.cpu()
 
             log_step += 1
 
