@@ -24,9 +24,9 @@
       "activation_function_name": "rectified_linear",
       "covariance_learning": false,
       "voltage_learning": false,
-      "log_time": 2.0,
+      "log_time": 25.0,
       "random_seed": 0,
-      "rate_computation_threshold": 0.0001,
+      "rate_computation_threshold": 0.001,
       "rate_computation_iterations": 10000
     },
     "input_params": {

@@ -58,7 +58,6 @@ def compute_firing_rates(
         v_dot = torch.mean(torch.abs(v_new - v)) / dt_v
         v = v_new
         counter += 1
-    print(f"Converged after {counter} iterations.")
 
     return r, v
 

@@ -276,9 +276,6 @@ def run_experiment(experiment_name: str) -> bool:
                 # Create SimulationParameters
                 parameters = SimulationParameters(**final_config["base_params"])
 
-                # Display the parameters:
-                print(f"  Parameters for this run: {parameters.to_dict()}")
-
                 # Generate initial conditions
                 initial_W, initial_M = generate_initial_weights(parameters)
 
