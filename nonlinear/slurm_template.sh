@@ -27,7 +27,7 @@
 #SBATCH --ntasks-per-node=1
 #!
 #! How much wallclock time will be required? (format: hh:mm:ss)
-#SBATCH --time=02:30:00 
+#SBATCH --time=00:15:00 
 #!
 #! What types of email messages do you wish to receive?
 #SBATCH --mail-type=END,FAIL 
@@ -70,7 +70,7 @@ np=$(( ${numnodes:-1} * ${mpi_tasks_per_node:-1} ))
 #!
 # Make sure SLURM_ARRAY_TASK_ID is set, default to 1 if running outside array
 TASK_ID=${SLURM_ARRAY_TASK_ID:-1}
-CONFIG_NAME="__CONFIG_PREFIX__${TASK_ID}.yaml"
+CONFIG_NAME="__CONFIG_PREFIX__$(printf "%03d" ${TASK_ID}).yaml"
 
 # Set the path to the config file - this will be in the same directory as this script
 CONFIG_DIR="__CONFIG_DIR__"

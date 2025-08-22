@@ -225,14 +225,28 @@ def save_distribution_configs(
     return serializable_configs
 
 
-def run_experiment(experiment_name: str) -> bool:
+def run_experiment(experiment_path: str) -> bool:
     """Run a single experiment. Returns True if successful, False otherwise."""
     try:
+        # Determine if this is a full path or just an experiment name
+        if "/" in experiment_path or experiment_path.endswith(".yaml"):
+            # Full path provided
+            experiment_config_path = experiment_path
+            # Extract experiment name for display
+            experiment_name = Path(experiment_path).stem
+            # For splintered configs, look for base.yaml in the original configs directory
+            base_config_path = "configs/base.yaml"
+        else:
+            # Experiment name provided (legacy behavior)
+            experiment_name = experiment_path
+            experiment_config_path = f"configs/{experiment_name}.yaml"
+            base_config_path = "configs/base.yaml"
+
         print(f"Starting experiment: {experiment_name}")
 
         # Load configurations
-        base_config = load_config("configs/base.yaml")
-        experiment_config = load_config(f"configs/{experiment_name}.yaml")
+        base_config = load_config(base_config_path)
+        experiment_config = load_config(experiment_config_path)
 
         # Deep merge configurations
         merged_config = deep_merge_configs(base_config, experiment_config)
@@ -243,13 +257,21 @@ def run_experiment(experiment_name: str) -> bool:
 
         print(f"Running {len(param_combinations)} parameter combinations")
 
-        # Create results directory
-        results_dir = Path(f"results/{experiment_name}")
+        # Create results directory - use config file name to avoid conflicts
+        if "/" in experiment_path or experiment_path.endswith(".yaml"):
+            # For splintered configs, use the actual config filename as results dir
+            config_filename = Path(experiment_path).stem
+            results_dir = Path(f"results/{config_filename}")
+        else:
+            # Legacy behavior for regular experiment names
+            results_dir = Path(f"results/{experiment_name}")
+
         results_dir.mkdir(parents=True, exist_ok=True)
 
         # Store metadata
         metadata = {
             "experiment_name": experiment_name,
+            "experiment_config_path": experiment_config_path,
             "base_config": base_config,
             "experiment_config": experiment_config,
             "param_combinations": param_combinations,

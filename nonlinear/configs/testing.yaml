@@ -1,0 +1,13 @@
+group_name: "test"
+
+param_grid:
+  T: [100]
+  N_I: [25]
+  N_E: [25]
+  homeostasis: [True, False] 
+
+input_params:
+  probability_config:
+    mixing_parameter: [0.4]
+    location: [0.0]
+    concentration: [1.0]
