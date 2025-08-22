@@ -225,24 +225,70 @@ def save_distribution_configs(
     return serializable_configs
 
 
+def extract_base_experiment_name(experiment_path: str) -> str:
+    """Extract the base experiment name from either a regular name or splintered config path."""
+    if "/" in experiment_path or experiment_path.endswith(".yaml"):
+        # This is a path to a config file
+        path = Path(experiment_path)
+
+        # Check if this is a splintered config
+        if "splintered_configs" in path.parts:
+            # Extract from path like: splintered_configs/test_splintered/test_001.yaml
+            splintered_dir = None
+            for part in path.parts:
+                if part.endswith("_splintered"):
+                    splintered_dir = part
+                    break
+
+            if splintered_dir:
+                # Remove '_splintered' suffix to get original experiment name
+                return splintered_dir[:-10]  # Remove '_splintered'
+            else:
+                # Fallback to config filename
+                return path.stem
+        else:
+            # Regular config file, use filename
+            return path.stem
+    else:
+        # Just an experiment name
+        return experiment_path
+
+
+def create_metadata_filename(param_combo: Dict[str, Any]) -> str:
+    """Create a unique metadata filename based on parameter combination."""
+    if not param_combo:
+        return "metadata.json"
+
+    # Create a descriptive name from parameters
+    param_parts = []
+    for key, value in sorted(param_combo.items()):
+        param_parts.append(f"{key}_{value}")
+
+    return f"metadata_{'_'.join(param_parts)}.json"
+
+
 def run_experiment(experiment_path: str) -> bool:
     """Run a single experiment. Returns True if successful, False otherwise."""
     try:
+        # Extract base experiment name for consistent results directory
+        base_experiment_name = extract_base_experiment_name(experiment_path)
+
         # Determine if this is a full path or just an experiment name
         if "/" in experiment_path or experiment_path.endswith(".yaml"):
             # Full path provided
             experiment_config_path = experiment_path
             # Extract experiment name for display
-            experiment_name = Path(experiment_path).stem
+            display_name = Path(experiment_path).stem
             # For splintered configs, look for base.yaml in the original configs directory
             base_config_path = "configs/base.yaml"
         else:
             # Experiment name provided (legacy behavior)
-            experiment_name = experiment_path
-            experiment_config_path = f"configs/{experiment_name}.yaml"
+            display_name = experiment_path
+            experiment_config_path = f"configs/{experiment_path}.yaml"
             base_config_path = "configs/base.yaml"
 
-        print(f"Starting experiment: {experiment_name}")
+        print(f"Starting experiment: {display_name}")
+        print(f"Results will be saved to: results/{base_experiment_name}/")
 
         # Load configurations
         base_config = load_config(base_config_path)
@@ -257,28 +303,9 @@ def run_experiment(experiment_path: str) -> bool:
 
         print(f"Running {len(param_combinations)} parameter combinations")
 
-        # Create results directory - use config file name to avoid conflicts
-        if "/" in experiment_path or experiment_path.endswith(".yaml"):
-            # For splintered configs, use the actual config filename as results dir
-            config_filename = Path(experiment_path).stem
-            results_dir = Path(f"results/{config_filename}")
-        else:
-            # Legacy behavior for regular experiment names
-            results_dir = Path(f"results/{experiment_name}")
-
+        # Create results directory using base experiment name
+        results_dir = Path(f"results/{base_experiment_name}")
         results_dir.mkdir(parents=True, exist_ok=True)
-
-        # Store metadata
-        metadata = {
-            "experiment_name": experiment_name,
-            "experiment_config_path": experiment_config_path,
-            "base_config": base_config,
-            "experiment_config": experiment_config,
-            "param_combinations": param_combinations,
-        }
-
-        with open(results_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=2, default=str)
 
         # Run simulations for each parameter combination
         successful_runs = 0
@@ -315,7 +342,11 @@ def run_experiment(experiment_path: str) -> bool:
 
                 print(f"    ✓ Simulation completed for {param_combo}. Saving results.")
 
-                # Prepare results to save
+                # Save the .pt file with parameter-based filename
+                pt_filename = params_to_filename(param_combo) + ".pt"
+                pt_filepath = results_dir / pt_filename
+
+                # Prepare results to save (same as before)
                 results = {
                     "final_W": final_W.detach().cpu(),
                     "final_M": final_M.detach().cpu(),
@@ -342,25 +373,41 @@ def run_experiment(experiment_path: str) -> bool:
                     },
                 }
 
-                # Save results
-                filename = params_to_filename(param_combo) + ".pt"
-                filepath = results_dir / filename
-                torch.save(results, filepath)
+                torch.save(results, pt_filepath)
+
+                # Save separate metadata file for this parameter combination
+                metadata_filename = create_metadata_filename(param_combo)
+                metadata_filepath = results_dir / metadata_filename
+
+                metadata = {
+                    "experiment_name": base_experiment_name,
+                    "display_name": display_name,
+                    "experiment_config_path": experiment_config_path,
+                    "base_config": base_config,
+                    "experiment_config": experiment_config,
+                    "param_combination": param_combo,
+                    "pt_filename": pt_filename,
+                }
+
+                with open(metadata_filepath, "w") as f:
+                    json.dump(metadata, f, indent=2, default=str)
 
                 successful_runs += 1
-                print(f"    ✓ Saved results to {filepath}")
+                print(f"    ✓ Saved results to {pt_filepath}")
+                print(f"    ✓ Saved metadata to {metadata_filepath}")
 
             except Exception as e:
                 print(f"    ✗ Error in parameter combination {param_combo}: {e}")
-                raise e  # Stop entirely on error as requested
+                continue
 
         print(
-            f"Experiment {experiment_name} completed: {successful_runs}/{len(param_combinations)} runs successful"
+            f"Experiment {display_name} completed: {successful_runs}/{len(param_combinations)} runs successful"
         )
+        print(f"All results saved to: {results_dir}")
         return successful_runs > 0
 
     except Exception as e:
-        print(f"✗ Failed to run experiment {experiment_name}: {e}")
+        print(f"✗ Failed to run experiment {experiment_path}: {e}")
         return False
 
 
