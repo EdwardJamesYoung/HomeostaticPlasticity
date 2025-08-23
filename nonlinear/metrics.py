@@ -179,7 +179,7 @@ def curves_log(
     )  # [batch, num_stimuli]
 
     density = circular_kde(
-        argmax_stimuli, stimuli_locations_expanded, bw=bw_multiplier * 0.2
+        argmax_stimuli, stimuli_locations_expanded, bw=bw_multiplier * 0.4
     )  # [batch, num_stimuli]
 
     return {
