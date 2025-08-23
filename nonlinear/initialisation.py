@@ -27,10 +27,7 @@ def generate_initial_weights(parameters: SimulationParameters) -> tuple[
 
     torch.manual_seed(random_seed)
 
-    k_E = (
-        num_stimuli * k_I * homeostasis_target
-        + num_stimuli * activation_function.inverse(homeostasis_target)
-    )
+    k_E = k_I * homeostasis_target + activation_function.inverse(homeostasis_target)
 
     # Draw an input weight matrix at random
     initial_W = torch.randn(repeats, N_I, N_E, device=device, dtype=dtype)

@@ -488,7 +488,9 @@ class InputGenerator(ABC):
             -0.5 * scaled_distances**2
         )  # [batch, N_E, num_stimuli]
         # Normalise the responses so that the sum for each neuron is equal to 1
-        kernel_responses = kernel_responses / kernel_responses.sum(dim=-1, keepdim=True)
+        kernel_responses = kernel_responses / kernel_responses.mean(
+            dim=-1, keepdim=True
+        )
 
         # Apply gains: multiply by gain[stimulus]
         # gains: [batch, num_stimuli] -> [batch, 1, num_stimuli]
