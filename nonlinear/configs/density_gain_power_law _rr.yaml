@@ -1,0 +1,12 @@
+group_name: "density_gain_power_law"
+
+param_grid:
+  repeats: [4]
+  homeostasis_power: [1.0, 1.33333, 2.0]
+  activation_function_name: ["rectified_quadratic", "rectified_cubic"]
+
+input_params:
+  probability_config:
+    mixing_parameter: [0.2, 0.3, 0.4, 0.5, 0.6]
+    location: [0.0]
+    concentration: [0.5, 0.75, 1.0, 1.5, 2.0]
