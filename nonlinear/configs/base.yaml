@@ -23,7 +23,7 @@ base_params:
   covariance_learning: False
   voltage_learning: False
   log_time: 25.0
-  random_seed: 0
+  random_seed: 42
   rate_computation_threshold: 0.001
   rate_computation_iterations: 10000
 

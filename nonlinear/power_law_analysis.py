@@ -31,6 +31,7 @@ class PowerLawAnalyzer:
 
     GENERATOR_CURVES = {
         "p": "stimuli_probabilities",
+        "hp": "convolved_probabilities",
         "d_E": "input_density",
         "g_E": "input_gains",
         "w_E": "input_widths",
@@ -153,11 +154,11 @@ class PowerLawAnalyzer:
             # Normalize to mean 1
             curve2_powered_norm = curve2_powered / (curve2_powered.mean() + 1e-12)
             # Compute L1 distance
-            l1_dist = np.mean(np.abs(curve1_np - curve2_powered_norm))
+            l1_dist = np.mean(np.abs(curve1_np - curve2_powered_norm)) / 2
             return l1_dist
 
-        # Optimize gamma in range [-3, 3]
-        result = minimize_scalar(objective, bounds=(-3, 3), method="bounded")
+        # Optimize gamma in range [-5, 5]
+        result = minimize_scalar(objective, bounds=(-3, 100), method="bounded")
 
         return result.x, result.fun  # gamma, l1_distance
 

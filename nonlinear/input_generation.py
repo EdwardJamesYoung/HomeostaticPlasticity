@@ -383,6 +383,10 @@ class InputGenerator(ABC):
             self._compute_stimuli_patterns()
         )  # [batch, N_E, num_stimuli]
 
+        self.convolved_probabilities = (
+            self._compute_convolved_probabilities()
+        )  # [batch, num_stimuli]
+
     @abstractmethod
     @jaxtyped(typechecker=typechecked)
     def _initialise_neuron_locations(
@@ -499,6 +503,31 @@ class InputGenerator(ABC):
         )  # [batch, N_E, num_stimuli]
 
         return responses
+
+    @jaxtyped(typechecker=typechecked)
+    def _compute_convolved_probabilities(
+        self,
+    ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
+        self.stimuli_locations  # [num_stimuli, num_dims]
+        self.stimuli_probabilities  # [batch, num_stimuli]
+        scaled_stimuli_distances = (
+            compute_circular_distance(self.stimuli_locations, self.stimuli_locations)
+            / self.tuning_width
+        )
+        convolution_kernel = torch.exp(
+            -0.5 * scaled_stimuli_distances**2
+        )  # [num_stimuli, num_stimuli]
+
+        convolved_probabilities = torch.einsum(
+            "bs,sz->bz", self.stimuli_probabilities, convolution_kernel
+        )  # [batch, num_stimuli]
+
+        # Normalise the convolved probabilities
+        convolved_probabilities = (
+            convolved_probabilities / convolved_probabilities.mean(dim=-1, keepdim=True)
+        )
+
+        return convolved_probabilities
 
 
 class CircularInputGenerator(InputGenerator):

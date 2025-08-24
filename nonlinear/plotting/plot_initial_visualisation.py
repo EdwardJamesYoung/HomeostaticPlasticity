@@ -127,11 +127,9 @@ def plot_initial_visualisation():
 
         # Style the axis
         ax.set_title(title, fontsize=title_size)
-        ax.set_xlabel("Input stimulus", fontsize=axis_size)
+        ax.set_xlabel(r"Input stimulus, $s$", fontsize=axis_size)
 
-        if panel_label == "A":  # Only left panel gets y-label
-            ax.set_ylabel("Response", fontsize=axis_size)
-        else:  # Right panel - remove y-axis labels and ticks
+        if panel_label == "B":
             ax.set_yticklabels([])
             ax.tick_params(left=False)
 
