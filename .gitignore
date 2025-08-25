@@ -7,4 +7,5 @@ archive/
 local/
 nonlinear/splintered_configs/
 nonlinear/results/
+nonlinear/results_old/
 nonlinear/power_law_analysis/
