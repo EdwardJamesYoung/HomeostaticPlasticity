@@ -1,7 +1,7 @@
 group_name: "width_power_law"
 
 param_grid:
-  homeostasis_power: [1.0, 1.1429, 1.3333, 1.6, 2.0, 2.6667, 4.0, 8.0]
+  homeostasis_power: [1.0, 1.1429, 1.3333, 1.6, 2.0, 2.6667, 4.0]
 
 input_params:
   width_config:

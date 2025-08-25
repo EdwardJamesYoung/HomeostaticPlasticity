@@ -144,23 +144,32 @@ class PowerLawAnalyzer:
         self, curve1_norm: torch.Tensor, curve2_norm: torch.Tensor
     ) -> Tuple[float, float]:
         """Optimize gamma for a single [repeat, batch] combination."""
-        # Both inputs: [num_stimuli]
         curve1_np = curve1_norm.detach().cpu().numpy()
         curve2_np = curve2_norm.detach().cpu().numpy()
 
         def objective(gamma):
-            # Apply power transformation
             curve2_powered = np.power(curve2_np, gamma)
-            # Normalize to mean 1
             curve2_powered_norm = curve2_powered / (curve2_powered.mean() + 1e-12)
-            # Compute L1 distance
             l1_dist = np.mean(np.abs(curve1_np - curve2_powered_norm)) / 2
             return l1_dist
 
-        # Optimize gamma in range [-5, 5]
-        result = minimize_scalar(objective, bounds=(-3, 100), method="bounded")
+        # Multi-start optimization with different initial points
+        gamma_starts = np.linspace(-3, 5, 20)  # 20 starting points
+        best_gamma = None
+        best_l1 = float("inf")
 
-        return result.x, result.fun  # gamma, l1_distance
+        for gamma_start in gamma_starts:
+            try:
+                result = minimize_scalar(objective, bounds=(-3, 100), method="bounded")
+
+                if result.fun < best_l1:
+                    best_l1 = result.fun
+                    best_gamma = result.x
+
+            except Exception:
+                continue
+
+        return best_gamma if best_gamma is not None else 0.0, best_l1
 
     def fit_power_law(
         self, curve1: torch.Tensor, curve2: torch.Tensor

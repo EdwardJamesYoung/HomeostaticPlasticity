@@ -10,10 +10,10 @@ base_params:
   T: 500.0
   dt_v: 0.05
   tau_v: 1.0
-  dt: 0.01
+  dt: 0.05
   tau_M: 1.0
-  tau_W: 4.0
-  tau_k: 8.0
+  tau_W: 20.0
+  tau_k: 40.0
   zeta: 4.0
   gamma: 1.0
   homeostasis: True
@@ -22,7 +22,7 @@ base_params:
   activation_function_name: "rectified_linear"
   covariance_learning: False
   voltage_learning: False
-  log_time: 1
+  log_time: 5
   random_seed: 42
   rate_computation_threshold: 0.001
   rate_computation_iterations: 10000

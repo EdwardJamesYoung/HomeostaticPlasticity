@@ -22,7 +22,7 @@ def plot_density_gain_powerlaw():
 
     # Load style and data
     style = load_style()
-    analysis_dict = load_power_law_analysis_data("density_gain_power_law_")
+    analysis_dict = load_power_law_analysis_data("density_gain_power_law")
 
     # Extract homeostasis_power values for rectified_linear activation function
     homeostasis_power_values = extract_homeostasis_power_values_from_analysis(
@@ -79,7 +79,7 @@ def plot_density_gain_powerlaw():
 
     for hp in homeostasis_power_values:
         # Find the analysis file for this homeostasis_power value
-        param_name = f"activation_function_name_rectified_linear_homeostasis_power_{hp}_repeats_4"
+        param_name = f"activation_function_name_rectified_linear_homeostasis_power_{hp}"
 
         if param_name in analysis_dict:
             results = analysis_dict[param_name]

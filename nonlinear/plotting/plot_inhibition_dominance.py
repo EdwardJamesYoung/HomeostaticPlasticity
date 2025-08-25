@@ -21,7 +21,7 @@ def plot_inhibition_dominance_powerlaw():
 
     # Load style and data
     style = load_style()
-    analysis_dict = load_power_law_analysis_data("inhibition_dominance_")
+    analysis_dict = load_power_law_analysis_data("inhibition_dominance")
 
     # Extract k_I values
     k_I_values = extract_k_I_values_from_analysis(analysis_dict)
@@ -80,7 +80,7 @@ def plot_inhibition_dominance_powerlaw():
 
     for k_I in k_I_values:
         # Find the analysis file for this k_I value
-        param_name = f"k_I_{k_I}_repeats_4"
+        param_name = f"k_I_{k_I}"
 
         if param_name in analysis_dict:
             results = analysis_dict[param_name]
@@ -148,12 +148,15 @@ def plot_inhibition_dominance_powerlaw():
     # Set Panel A to have a logarithmic y axis
     ax_a.set_yscale("log")
     ax_a.set_ylim(1e0, 1e2)
+    # Plot a horizontal dashed line at 2
+    ax_a.axhline(y=2, color="black", linestyle="--", linewidth=1)
 
     # Panel B: g_I vs p gamma values
     plot_custom_boxplot(
         ax_b, x_positions, g_I_gamma_boxplots, green_colors, alphas, line_width
     )
     ax_b.set_ylim(-1.5, 3.5)
+    ax_b.axhline(y=-1, color="black", linestyle="--", linewidth=1)
 
     # Panel C: d_I vs p l1 distances
     plot_custom_boxplot(
@@ -175,7 +178,7 @@ def plot_inhibition_dominance_powerlaw():
         # Y-axis labels
         if i < 2:  # Top row (gamma)
             if i % 2 == 0:  # Left panel
-                ax.set_ylabel(r"$\gamma$", fontsize=axis_size)
+                ax.set_ylabel(r"Power law exponent, $\gamma$", fontsize=axis_size)
         else:  # Bottom row (l1 distance)
             if i % 2 == 0:  # Left panel
                 ax.set_ylabel(r"$\ell_1$ distance", fontsize=axis_size)

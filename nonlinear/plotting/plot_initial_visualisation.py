@@ -129,10 +129,6 @@ def plot_initial_visualisation():
         ax.set_title(title, fontsize=title_size)
         ax.set_xlabel(r"Input stimulus, $s$", fontsize=axis_size)
 
-        if panel_label == "B":
-            ax.set_yticklabels([])
-            ax.tick_params(left=False)
-
         # Set x-axis limits
         ax.set_xlim(-np.pi, np.pi)
         ax.set_ylim(0, 2.25)
@@ -140,6 +136,9 @@ def plot_initial_visualisation():
         # Set x-axis ticks
         ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
         ax.set_xticklabels([r"$-\pi$", r"$-\pi/2$", r"$0$", r"$\pi/2$", r"$\pi$"])
+
+        # Set y-ticks
+        ax.set_yticklabels([])
 
         # Tick sizes
         ax.tick_params(axis="both", which="major", labelsize=ticks_size)
