@@ -22,7 +22,7 @@ def plot_initial_visualisation():
 
     # Load style and data
     style = load_style()
-    data_dict, metadata_dict = load_experiment_data("initial_visualisation_")
+    data_dict, metadata_dict = load_experiment_data("initial_visualisation")
 
     # Extract style parameters
     fig_width = style["sizes"]["figure_width"]
@@ -135,7 +135,7 @@ def plot_initial_visualisation():
 
         # Set x-axis limits
         ax.set_xlim(-np.pi, np.pi)
-        ax.set_ylim(0, 2.0)
+        ax.set_ylim(0, 2.25)
 
         # Set x-axis ticks
         ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
