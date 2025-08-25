@@ -1,7 +1,10 @@
 wandb/
 __pycache__/
 *.ipynb
+*.gif
 numpy_code.py
 archive/
 local/
 nonlinear/splintered_configs/
+nonlinear/results/
+nonlinear/power_law_analysis/

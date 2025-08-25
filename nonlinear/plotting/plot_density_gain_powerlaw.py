@@ -26,7 +26,7 @@ def plot_density_gain_powerlaw():
 
     # Extract homeostasis_power values for rectified_linear activation function
     homeostasis_power_values = extract_homeostasis_power_values_from_analysis(
-        analysis_dict, activation_function_filter="rectified_linear"
+        analysis_dict
     )
     # homeostasis_power_values.remove(2.0)
     print(f"Found homeostasis_power values: {homeostasis_power_values}")

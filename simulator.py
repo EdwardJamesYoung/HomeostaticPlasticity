@@ -357,26 +357,26 @@ def deterministic_simulation(
         if not self_connections:
             new_M = new_M - torch.diag_embed(torch.diagonal(new_M, dim1=-2, dim2=-1))
 
-        # Renormalize the weight matrices
-        # new_W = torch.einsum(
-        #     "bi,bie -> bie",
-        #     W_norm / (torch.sum(torch.abs(new_W), dim=-1) + 1e-12),
-        #     new_W,
-        # )  # [batch, N_I, N_E]
-        # new_M = torch.einsum(
-        #     "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
-        # )  # [batch, N_I, N_I]
-
-        new_W = renormalise_weights(
+        # Renormalise the weight matrices
+        new_W = torch.einsum(
+            "bi,bie -> bie",
+            W_norm / (torch.sum(torch.abs(new_W), dim=-1) + 1e-12),
             new_W,
-            W_norm,
-            weight_decay_power=weight_decay_power,
-        )
-        new_M = renormalise_weights(
-            new_M,
-            M_norm,
-            weight_decay_power=weight_decay_power,
-        )
+        )  # [batch, N_I, N_E]
+        new_M = torch.einsum(
+            "bi,bij->bij", M_norm / (torch.sum(new_M, dim=-1) + 1e-12), new_M
+        )  # [batch, N_I, N_I]
+
+        # new_W = renormalise_weights(
+        #     new_W,
+        #     W_norm,
+        #     weight_decay_power=weight_decay_power,
+        # )
+        # new_M = renormalise_weights(
+        #     new_M,
+        #     M_norm,
+        #     weight_decay_power=weight_decay_power,
+        # )
 
         # It's logging time!
         log_dict = {}
