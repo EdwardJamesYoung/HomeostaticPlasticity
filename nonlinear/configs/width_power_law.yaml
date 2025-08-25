@@ -1,9 +1,7 @@
 group_name: "width_power_law"
 
 param_grid:
-  repeats: [4]
   homeostasis_power: [1.0, 1.33333, 2.0, 4.0]
-  activation_function_name: ["rectified_linear", "rectified_quadratic"]
 
 input_params:
   width_config:

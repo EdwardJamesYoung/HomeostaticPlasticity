@@ -225,33 +225,18 @@ def save_distribution_configs(
     return serializable_configs
 
 
-def extract_base_experiment_name(experiment_path: str) -> str:
-    """Extract the base experiment name from either a regular name or splintered config path."""
-    if "/" in experiment_path or experiment_path.endswith(".yaml"):
-        # This is a path to a config file
-        path = Path(experiment_path)
-
-        # Check if this is a splintered config
-        if "splintered_configs" in path.parts:
-            # Extract from path like: splintered_configs/test_splintered/test_001.yaml
-            splintered_dir = None
-            for part in path.parts:
-                if part.endswith("_splintered"):
-                    splintered_dir = part
-                    break
-
-            if splintered_dir:
-                # Remove '_splintered' suffix to get original experiment name
-                return splintered_dir[:-10]  # Remove '_splintered'
-            else:
-                # Fallback to config filename
-                return path.stem
-        else:
-            # Regular config file, use filename
-            return path.stem
-    else:
-        # Just an experiment name
-        return experiment_path
+def extract_group_name_from_config(config_path: str) -> str:
+    """Extract the group_name from a config file."""
+    try:
+        config = load_config(config_path)
+        if "group_name" not in config:
+            # Fallback to filename if no group_name
+            return Path(config_path).stem
+        return config["group_name"]
+    except Exception as e:
+        print(f"Warning: Could not load config {config_path}: {e}")
+        # Fallback to filename
+        return Path(config_path).stem
 
 
 def create_metadata_filename(param_combo: Dict[str, Any]) -> str:
@@ -270,16 +255,11 @@ def create_metadata_filename(param_combo: Dict[str, Any]) -> str:
 def run_experiment(experiment_path: str) -> bool:
     """Run a single experiment. Returns True if successful, False otherwise."""
     try:
-        # Extract base experiment name for consistent results directory
-        base_experiment_name = extract_base_experiment_name(experiment_path)
-
-        # Determine if this is a full path or just an experiment name
+        # Determine config path and display name
         if "/" in experiment_path or experiment_path.endswith(".yaml"):
             # Full path provided
             experiment_config_path = experiment_path
-            # Extract experiment name for display
             display_name = Path(experiment_path).stem
-            # For splintered configs, look for base.yaml in the original configs directory
             base_config_path = "configs/base.yaml"
         else:
             # Experiment name provided (legacy behavior)
@@ -287,8 +267,11 @@ def run_experiment(experiment_path: str) -> bool:
             experiment_config_path = f"configs/{experiment_path}.yaml"
             base_config_path = "configs/base.yaml"
 
+        # Extract group_name from the experiment config to use as results directory
+        results_dir_name = extract_group_name_from_config(experiment_config_path)
+
         print(f"Starting experiment: {display_name}")
-        print(f"Results will be saved to: results/{base_experiment_name}/")
+        print(f"Results will be saved to: results/{results_dir_name}/")
 
         # Load configurations
         base_config = load_config(base_config_path)
@@ -303,8 +286,8 @@ def run_experiment(experiment_path: str) -> bool:
 
         print(f"Running {len(param_combinations)} parameter combinations")
 
-        # Create results directory using base experiment name
-        results_dir = Path(f"results/{base_experiment_name}")
+        # Create results directory using group_name
+        results_dir = Path(f"results/{results_dir_name}")
         results_dir.mkdir(parents=True, exist_ok=True)
 
         # Run simulations for each parameter combination
@@ -380,7 +363,7 @@ def run_experiment(experiment_path: str) -> bool:
                 metadata_filepath = results_dir / metadata_filename
 
                 metadata = {
-                    "experiment_name": base_experiment_name,
+                    "experiment_name": results_dir_name,  # Use group_name here too
                     "display_name": display_name,
                     "experiment_config_path": experiment_config_path,
                     "base_config": base_config,

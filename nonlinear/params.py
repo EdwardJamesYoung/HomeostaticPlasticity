@@ -19,14 +19,14 @@ class SimulationParameters:
     num_stimuli: int = 100
     tuning_width: float = 0.25
     k_I: float = 16.0
-    T: float = 2500.0
+    T: float = 500.0
     dt_v: float = 0.05
     tau_v: float = 1.0
-    dt: float = 0.05
+    dt: float = 0.01
     tau_M: float = 1.0
     tau_W: float = 4.0
-    tau_k: float = 20.0
-    zeta: float = 1.0
+    tau_k: float = 8.0
+    zeta: float = 4.0
     gamma: float = 1.0
     homeostasis: bool = True
     homeostasis_power: float = 1.0
@@ -35,7 +35,7 @@ class SimulationParameters:
     activation_function: ActivationFunction = RectifiedLinear()
     covariance_learning: bool = False
     voltage_learning: bool = False
-    log_time: float = 20
+    log_time: float = 1
     random_seed: int = 0
     rate_computation_threshold: float = 1e-4
     rate_computation_iterations: int = 10000

@@ -1,7 +1,7 @@
 group_name: "test"
 
 param_grid:
-  T: [100]
+  T: [50]
   N_I: [25]
   N_E: [25]
   homeostasis: [True, False] 

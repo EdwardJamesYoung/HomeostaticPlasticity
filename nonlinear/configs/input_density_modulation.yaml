@@ -1,9 +1,7 @@
 group_name: "input_density_modulation"
 
 param_grid:
-  repeats: [4]
   homeostasis: [True, False]
-  activation_function_name: ["rectified_linear", "rectified_power_law_1p5", "rectified_quadratic", "rectified_cubic"]
 
 input_params:
   density_config:

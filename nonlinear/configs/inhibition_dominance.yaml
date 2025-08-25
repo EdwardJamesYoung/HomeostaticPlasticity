@@ -1,8 +1,7 @@
 group_name: "inhibition_dominance"
 
 param_grid:
-  repeats: [4]
-  k_I: [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0] 
+  k_I: [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]
   
 input_params:
   probability_config:

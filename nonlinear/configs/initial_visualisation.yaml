@@ -1,6 +1,7 @@
 group_name: "initial_visualisation"
 
 param_grid:
+  repeats: [1]
   N_I: [25]
   N_E: [25]
   homeostasis: [True, False] 
