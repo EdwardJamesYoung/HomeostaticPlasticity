@@ -79,7 +79,7 @@ def plot_density_gain_powerlaw():
 
     for hp in homeostasis_power_values:
         # Find the analysis file for this homeostasis_power value
-        param_name = f"activation_function_name_rectified_linear_homeostasis_power_{hp}"
+        param_name = f"homeostasis_power_{hp}"
 
         if param_name in analysis_dict:
             results = analysis_dict[param_name]

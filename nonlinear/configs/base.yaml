@@ -7,7 +7,7 @@ base_params:
   num_stimuli: 100
   tuning_width: 0.25
   k_I: 16.0
-  T: 500.0
+  T: 2000.0
   dt_v: 0.05
   tau_v: 1.0
   dt: 0.05
@@ -22,7 +22,7 @@ base_params:
   activation_function_name: "rectified_linear"
   covariance_learning: False
   voltage_learning: False
-  log_time: 5
+  log_time: 10
   random_seed: 42
   rate_computation_threshold: 0.001
   rate_computation_iterations: 10000

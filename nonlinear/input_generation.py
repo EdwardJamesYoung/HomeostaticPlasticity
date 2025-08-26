@@ -62,13 +62,10 @@ class DistributionConfig2D:
             self.location.shape[0],
         )
 
-        self.mixing_parameter, self.concentration, self.location = (
-            torch.broadcast_tensors(
-                self.mixing_parameter,
-                self.concentration,
-                self.location,
-            )
-        )
+        # Broadcast only the first dimension (batch) to match batch_size
+        self.mixing_parameter = self.mixing_parameter.expand(self.batch_size, -1)
+        self.concentration = self.concentration.expand(self.batch_size, -1)
+        self.location = self.location.expand(self.batch_size, -1)
 
     def marginal(self, dim: int) -> DistributionConfig1D:
         assert dim in (0, 1), "Dimension must be 0 or 1"

@@ -19,7 +19,7 @@ class SimulationParameters:
     num_stimuli: int = 100
     tuning_width: float = 0.25
     k_I: float = 16.0
-    T: float = 500.0
+    T: float = 1000.0
     dt_v: float = 0.05
     tau_v: float = 1.0
     dt: float = 0.01
