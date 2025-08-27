@@ -17,18 +17,17 @@ from plotting_utils import (
 )
 
 
-def plot_density_gain_powerlaw():
-    """Create density/gain power law analysis plot with homeostasis power scaling."""
+def plot_width_powerlaw():
+    """Create width power law analysis plot with homeostasis power scaling."""
 
     # Load style and data
     style = load_style()
-    analysis_dict = load_power_law_analysis_data("density_gain_power_law")
+    analysis_dict = load_power_law_analysis_data("width_power_law")
 
     # Extract homeostasis_power values for rectified_linear activation function
     homeostasis_power_values = extract_homeostasis_power_values_from_analysis(
         analysis_dict
     )
-    # homeostasis_power_values.remove(2.0)
     print(f"Found homeostasis_power values: {homeostasis_power_values}")
 
     # Calculate 1/homeostasis_power for x-axis
@@ -74,8 +73,8 @@ def plot_density_gain_powerlaw():
     )
 
     # Prepare data for each homeostasis_power value
-    d_I_p_gamma_data = []
-    g_I_p_gamma_data = []
+    d_I_w_E_gamma_data = []
+    g_I_w_E_gamma_data = []
 
     for hp in homeostasis_power_values:
         # Find the analysis file for this homeostasis_power value
@@ -84,24 +83,24 @@ def plot_density_gain_powerlaw():
         if param_name in analysis_dict:
             results = analysis_dict[param_name]
 
-            # Extract data for d_I vs p
-            if "d_I_vs_p" in results:
-                d_I_p_gamma_data.append(results["d_I_vs_p"]["gammas"])
+            # Extract data for d_I vs w_E
+            if "d_I_vs_w_E" in results:
+                d_I_w_E_gamma_data.append(results["d_I_vs_w_E"]["gammas"])
             else:
-                print(f"Warning: d_I_vs_p not found for {param_name}")
-                d_I_p_gamma_data.append(torch.tensor([]))
+                print(f"Warning: d_I_vs_w_E not found for {param_name}")
+                d_I_w_E_gamma_data.append(torch.tensor([]))
 
-            # Extract data for g_I vs p
-            if "g_I_vs_p" in results:
-                g_I_p_gamma_data.append(results["g_I_vs_p"]["gammas"])
+            # Extract data for g_I vs w_E
+            if "g_I_vs_w_E" in results:
+                g_I_w_E_gamma_data.append(results["g_I_vs_w_E"]["gammas"])
             else:
-                print(f"Warning: g_I_vs_p not found for {param_name}")
-                g_I_p_gamma_data.append(torch.tensor([]))
+                print(f"Warning: g_I_vs_w_E not found for {param_name}")
+                g_I_w_E_gamma_data.append(torch.tensor([]))
         else:
             print(f"Warning: No analysis data found for homeostasis_power = {hp}")
             # Add empty tensors for missing data
-            d_I_p_gamma_data.append(torch.tensor([]))
-            g_I_p_gamma_data.append(torch.tensor([]))
+            d_I_w_E_gamma_data.append(torch.tensor([]))
+            g_I_w_E_gamma_data.append(torch.tensor([]))
 
     # Create boxplot data for each homeostasis_power value
     d_I_gamma_boxplots = []
@@ -112,8 +111,8 @@ def plot_density_gain_powerlaw():
     g_I_medians = []
 
     for i in range(len(homeostasis_power_values)):
-        if d_I_p_gamma_data[i].numel() > 0:
-            boxplot_data = create_boxplot_data_from_tensors([d_I_p_gamma_data[i]])
+        if d_I_w_E_gamma_data[i].numel() > 0:
+            boxplot_data = create_boxplot_data_from_tensors([d_I_w_E_gamma_data[i]])
             d_I_gamma_boxplots.append(boxplot_data)
             d_I_medians.append(boxplot_data["q50"])
         else:
@@ -122,8 +121,8 @@ def plot_density_gain_powerlaw():
             d_I_gamma_boxplots.append(empty_data)
             d_I_medians.append(0)
 
-        if g_I_p_gamma_data[i].numel() > 0:
-            boxplot_data = create_boxplot_data_from_tensors([g_I_p_gamma_data[i]])
+        if g_I_w_E_gamma_data[i].numel() > 0:
+            boxplot_data = create_boxplot_data_from_tensors([g_I_w_E_gamma_data[i]])
             g_I_gamma_boxplots.append(boxplot_data)
             g_I_medians.append(boxplot_data["q50"])
         else:
@@ -147,7 +146,7 @@ def plot_density_gain_powerlaw():
     d_I_y_line = d_I_slope * x_line + d_I_intercept
     g_I_y_line = g_I_slope * x_line + g_I_intercept
 
-    # Panel A: d_I vs p gamma values (blue)
+    # Panel A: d_I vs w_E gamma values (blue)
     # Plot regression line first (behind boxplots)
     ax_a.plot(
         x_line,
@@ -168,7 +167,7 @@ def plot_density_gain_powerlaw():
         widths=0.1,
     )
 
-    # Panel B: g_I vs p gamma values (green)
+    # Panel B: g_I vs w_E gamma values (green)
     # Plot regression line first (behind boxplots)
     ax_b.plot(
         x_line,
@@ -195,8 +194,12 @@ def plot_density_gain_powerlaw():
     r_squared_values = [d_I_r2, g_I_r2]
     slope_values = [d_I_slope, g_I_slope]
 
-    ax_a.set_ylim(-0.5, 2.5)
-    ax_b.set_ylim(-1.25, 0.25)
+    ax_a.set_ylim(-2.5, 0.5)
+    ax_b.set_ylim(-1.0, 0.5)
+
+    # Set the title of each axis
+    ax_a.set_title(r"$d_I \propto w_E^\gamma$")
+    ax_b.set_title(r"$g_I \propto w_E^\gamma$")
 
     for i, (ax, label, r2_val, slope_val) in enumerate(
         zip(panels, panel_labels, r_squared_values, slope_values)
@@ -240,22 +243,18 @@ def plot_density_gain_powerlaw():
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
         )
 
-    # Set the title of each axis
-    ax_a.set_title(r"$d_I \propto p^\gamma$")
-    ax_b.set_title(r"$g_I \propto p^\gamma$")
-
     # Create figures directory and save
     figures_dir = Path("figures")
     figures_dir.mkdir(exist_ok=True)
 
-    output_path = figures_dir / "density_gain_powerlaw.pdf"
+    output_path = figures_dir / "width_powerlaw.pdf"
     plt.savefig(output_path, format="pdf", bbox_inches="tight", dpi=300)
     plt.close()
 
     print(f"Plot saved to {output_path}")
-    print(f"d_I vs p: R² = {d_I_r2:.3f}, β = {d_I_slope:.3f}")
-    print(f"g_I vs p: R² = {g_I_r2:.3f}, β = {g_I_slope:.3f}")
+    print(f"d_I vs w_E: R² = {d_I_r2:.3f}, β = {d_I_slope:.3f}")
+    print(f"g_I vs w_E: R² = {g_I_r2:.3f}, β = {g_I_slope:.3f}")
 
 
 if __name__ == "__main__":
-    plot_density_gain_powerlaw()
+    plot_width_powerlaw()

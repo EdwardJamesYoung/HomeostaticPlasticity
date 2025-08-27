@@ -1,13 +1,15 @@
 group_name: "test"
 
 param_grid:
+  repeats: [1]
   T: [50]
-  N_I: [25]
-  N_E: [25]
-  homeostasis: [True, False] 
+  N_I: [100]
+  N_E: [100]
+  homeostasis: [True] 
 
 input_params:
+  input_generator_name: "torus_input_generator"
   probability_config:
     mixing_parameter: [0.4]
-    location: [0.0]
+    location: [[0.0, 0.0]]
     concentration: [1.0]

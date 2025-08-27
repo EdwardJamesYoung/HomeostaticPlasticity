@@ -188,7 +188,7 @@ def plot_inhibition_dominance_powerlaw():
 
         # X-axis labels (only bottom panels)
         if i >= 2:  # Bottom panels (C, D)
-            ax.set_xlabel(r"$k_I$", fontsize=axis_size)
+            ax.set_xlabel(r"Total inhibitory mass, $k_I$", fontsize=axis_size)
             ax.set_xticks(x_positions)
             ax.set_xticklabels([str(k) for k in k_I_values])
         else:  # Top panels (A, B) - remove x-axis labels
