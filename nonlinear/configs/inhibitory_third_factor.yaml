@@ -4,6 +4,7 @@ param_grid:
   N_E: [625]
   N_I: [625]
   num_stimuli: [625]
+  homeostasis: [True, False]
 
 input_params:
   input_generator_name: "torus_input_generator"
