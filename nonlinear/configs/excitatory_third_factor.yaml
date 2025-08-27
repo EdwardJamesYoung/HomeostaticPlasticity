@@ -1,0 +1,13 @@
+group_name: "excitatory_third_factor_learning"
+
+param_grid:
+  N_E: [625]
+  N_I: [625]
+  num_stimuli: [625]
+
+input_params:
+  input_generator_name: "torus_input_generator"
+  excitatory_third_factor_config:
+    mixing_parameter: [0.1, 0.2, 0.3, 0.4, 0.5]
+    location: [[0.0, 0.0]]
+    concentration: [0.5, 0.75, 1.0, 1.5, 2.0]

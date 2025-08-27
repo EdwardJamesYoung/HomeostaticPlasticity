@@ -641,7 +641,8 @@ class TorusInputGenerator(InputGenerator):
         locations: Float[torch.Tensor, "{self.num_stimuli} 2"],
         config: DistributionConfig2D,
     ) -> Float[torch.Tensor, "{self.batch_size} {self.num_stimuli}"]:
-        return evaluate_mixture_2d(locations=locations, config=config)
+        mixture = evaluate_mixture_2d(locations=locations, config=config)
+        return mixture.expand(self.batch_size, -1)
 
     @jaxtyped(typechecker=typechecked)
     def _initialise_neuron_locations(
@@ -656,15 +657,14 @@ class TorusInputGenerator(InputGenerator):
         # Compute inverse CDF for each marginal
         angles_0_batch = compute_unique_inverse_cdf_1d(
             uniform_grid, self.density_config.marginal(0)
-        )  # [batch, N_E_sqrt]
-
+        )  # [#batch, N_E_sqrt]
         angles_1_batch = compute_unique_inverse_cdf_1d(
             uniform_grid, self.density_config.marginal(1)
-        )  # [batch, N_E_sqrt]
+        )  # [#batch, N_E_sqrt]
 
         # Create 2D grids for each batch element
         batch_neuron_locations = []
-        for b in range(self.batch_size):
+        for b in range(angles_0_batch.shape[0]):
             # Create 2D grid via outer product for this batch element
             theta0_grid, theta1_grid = torch.meshgrid(
                 angles_0_batch[b], angles_1_batch[b], indexing="ij"
@@ -674,7 +674,11 @@ class TorusInputGenerator(InputGenerator):
             )  # [N_E, 2]
             batch_neuron_locations.append(locations_2d)
 
-        return torch.stack(batch_neuron_locations, dim=0)  # [batch, N_E, 2]
+        locations = torch.stack(batch_neuron_locations, dim=0)  # [#batch, N_E, 2]
+        # if locations.shape[0] = 1, expand along the first dimension
+        if locations.shape[0] == 1:
+            locations = locations.expand(self.batch_size, -1, -1)
+        return locations
 
     @jaxtyped(typechecker=typechecked)
     def _initialise_stimuli_locations(

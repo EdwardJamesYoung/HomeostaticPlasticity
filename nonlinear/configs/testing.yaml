@@ -9,7 +9,7 @@ param_grid:
 
 input_params:
   input_generator_name: "torus_input_generator"
-  probability_config:
-    mixing_parameter: [0.4]
+  inhibitory_third_factor_config:
+    mixing_parameter: [0.2, 0.4, 0.6]
     location: [[0.0, 0.0]]
     concentration: [1.0]

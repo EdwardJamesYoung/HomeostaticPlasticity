@@ -302,12 +302,15 @@ def run_experiment(experiment_path: str) -> bool:
                 final_config = copy.deepcopy(merged_config)
                 final_config["base_params"].update(param_combo)
 
+                print("Creating input generator...")
                 # Create input generator (this handles the batch_size from input_params grid)
                 input_generator = create_input_generator(final_config)
 
+                print("Creating SimulationParameters...")
                 # Create SimulationParameters
                 parameters = SimulationParameters(**final_config["base_params"])
 
+                print("Generating initial conditions...")
                 # Generate initial conditions
                 initial_W, initial_M = generate_initial_weights(parameters)
 
