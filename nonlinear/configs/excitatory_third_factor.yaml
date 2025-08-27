@@ -1,10 +1,14 @@
 group_name: "excitatory_third_factor_learning"
 
-param_grid:
-  N_E: [625]
-  N_I: [625]
-  num_stimuli: [625]
+param_grid:  
+  N_E: [400]
+  N_I: [400]
+  num_stimuli: [400]
   homeostasis: [True, False]
+  log_time: [20.0]
+  tau_W: [10.0]
+  tau_k: [20.0]
+  T: [2000]
 
 input_params:
   input_generator_name: "torus_input_generator"
