@@ -1,4 +1,4 @@
-group_name: "inhibitory_third_factor_config"
+group_name: "inhibitory_third_factor_learning"
 
 param_grid:
   N_E: [400]

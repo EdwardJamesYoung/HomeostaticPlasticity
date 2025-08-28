@@ -4,7 +4,7 @@ from jaxtyping import Float, jaxtyped
 from typeguard import typechecked
 from params import SimulationParameters
 
-from input_generation import InputGenerator
+from input_generation import InputGenerator, CircularInputGenerator, TorusInputGenerator
 from params import SimulationParameters
 from utils import (
     circular_kde,
@@ -149,7 +149,11 @@ def curves_log(
 
     max_rates = rates.max(axis=-1)[0]  # [repeats, batch, N_I]
 
-    bw_multiplier = N_I ** (-0.2)
+    if isinstance(input_generator, CircularInputGenerator):
+        bw = 0.4 * N_I ** (-0.2)
+    elif isinstance(input_generator, TorusInputGenerator):
+        bw = 0.8 * N_I ** (-0.1667)
+
     max_rate_range = max_rates.max() - max_rates.min()
 
     stimuli_locations_expanded = stimuli_locations.unsqueeze(0).unsqueeze(
@@ -160,7 +164,7 @@ def curves_log(
         argmax_stimuli,
         max_rates,
         stimuli_locations_expanded,  # [1, 1, num_stimuli, num_dims]
-        bw=bw_multiplier * 0.4,
+        bw=bw,
         delta=0.25 * max_rate_range.item(),
     )  # [repeats, batch, num_stimuli]
 
@@ -174,12 +178,12 @@ def curves_log(
         argmax_stimuli,
         tuning_curve_widths,
         stimuli_locations_expanded,
-        bw=bw_multiplier * 0.4,
+        bw=bw,
         delta=0.25 * width_range.item(),
     )  # [batch, num_stimuli]
 
     density = circular_kde(
-        argmax_stimuli, stimuli_locations_expanded, bw=bw_multiplier * 0.4
+        argmax_stimuli, stimuli_locations_expanded, bw=bw
     )  # [batch, num_stimuli]
 
     return {

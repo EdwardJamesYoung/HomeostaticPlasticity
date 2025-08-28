@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Union
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import sys
 
 # Add parent directory to path for imports
@@ -454,3 +455,87 @@ def compute_linear_regression(
     r_squared = 1 - (ss_res / ss_tot)
 
     return float(slope), float(intercept), float(r_squared)
+
+
+def create_custom_colormap(color_scheme: Dict[str, str], name: str):
+    """
+    Create a custom matplotlib colormap from style color scheme.
+
+    Args:
+        color_scheme: Dictionary with 'light', 'normal', 'dark' colors
+        name: Name for the colormap
+
+    Returns:
+        matplotlib colormap object
+    """
+    colors = [color_scheme["light"], color_scheme["normal"], color_scheme["dark"]]
+    return LinearSegmentedColormap.from_list(name, colors)
+
+
+def find_center_neuron_index(neuron_locations: torch.Tensor) -> int:
+    """
+    Find the neuron closest to the center (0, 0) of the torus.
+
+    Args:
+        neuron_locations: Tensor of shape [batch, N_neurons, 2] or [N_neurons, 2]
+
+    Returns:
+        Index of the center neuron
+    """
+    # Handle batch dimension if present
+    if neuron_locations.dim() == 3:
+        locations = neuron_locations[0]  # Take first batch
+    else:
+        locations = neuron_locations
+
+    # Calculate distance to center (0, 0)
+    center = torch.tensor([0.0, 0.0], device=locations.device)
+    distances = torch.norm(locations - center, dim=1)
+
+    return torch.argmin(distances).item()
+
+
+def find_target_batch_index_2d(
+    input_generator, target_mixing_parameter=0.2, target_concentration=1.0
+):
+    """
+    Find the batch index for 2D (torus) experiments with the target mixing parameter and concentration.
+
+    Args:
+        input_generator: The input generator object
+        target_mixing_parameter: Target mixing parameter value
+        target_concentration: Target concentration value
+
+    Returns:
+        batch_idx: Index of the matching batch element
+    """
+    # For torus experiments, check different config types
+    configs_to_check = [
+        "excitatory_third_factor_config",
+        "inhibitory_third_factor_config",
+        "density_config",
+        "gain_config",
+    ]
+
+    for config_name in configs_to_check:
+        if hasattr(input_generator, config_name):
+            config = getattr(input_generator, config_name)
+            mixing_params = config.mixing_parameter.squeeze()
+            concentrations = config.concentration.squeeze()
+
+            # Handle single values vs batches
+            if mixing_params.dim() == 0:
+                mixing_params = mixing_params.unsqueeze(0)
+            if concentrations.dim() == 0:
+                concentrations = concentrations.unsqueeze(0)
+
+            for i in range(len(mixing_params)):
+                if (
+                    abs(mixing_params[i].item() - target_mixing_parameter) < 1e-6
+                    and abs(concentrations[i].item() - target_concentration) < 1e-6
+                ):
+                    return i
+
+    raise ValueError(
+        f"Could not find batch index for mixing_parameter={target_mixing_parameter}, concentration={target_concentration}"
+    )

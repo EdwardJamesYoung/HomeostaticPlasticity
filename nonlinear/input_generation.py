@@ -678,7 +678,7 @@ class TorusInputGenerator(InputGenerator):
         # if locations.shape[0] = 1, expand along the first dimension
         if locations.shape[0] == 1:
             locations = locations.expand(self.batch_size, -1, -1)
-        return locations
+        return locations.to(device=self.device, dtype=self.dtype)
 
     @jaxtyped(typechecker=typechecked)
     def _initialise_stimuli_locations(
@@ -698,4 +698,4 @@ class TorusInputGenerator(InputGenerator):
             [theta0_grid.flatten(), theta1_grid.flatten()], dim=-1
         )  # [num_stimuli, 2]
 
-        return stimuli_locations
+        return stimuli_locations.to(device=self.device, dtype=self.dtype)

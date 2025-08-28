@@ -1,11 +1,11 @@
-group_name: "test"
+group_name: "time_scale_ratio"
 
 param_grid:
-  repeats: [1]
-  T: [50]
-  tau_W: [2.0, 4.0] 
   tau_product: [4.0]
-
+  T: [2000.0]
+  tau_W: [0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
+  tau_k: [16.0]
+  
 input_params:
   probability_config:
     mixing_parameter: [0.2, 0.3, 0.4, 0.5, 0.6]
