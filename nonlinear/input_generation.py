@@ -74,6 +74,7 @@ class DistributionConfig2D:
             mixing_parameter=self.mixing_parameter,
             concentration=self.concentration,
             location=self.location[:, dim : dim + 1],
+            device=self.device,
         )
 
 

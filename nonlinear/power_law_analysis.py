@@ -254,8 +254,8 @@ class PowerLawAnalyzer:
             pair_key = f"{curve1_alias}_vs_{curve2_alias}"
             try:
                 # Extract curves
-                curve1 = self.extract_curve(data, curve1_alias)
-                curve2 = self.extract_curve(data, curve2_alias)
+                curve1 = self.extract_curve(data, curve1_alias).to(device="cpu")
+                curve2 = self.extract_curve(data, curve2_alias).to(device="cpu")
 
                 print(f"  Processing {pair_key}: shapes {curve1.shape}, {curve2.shape}")
 

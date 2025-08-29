@@ -468,7 +468,12 @@ def create_custom_colormap(color_scheme: Dict[str, str], name: str):
     Returns:
         matplotlib colormap object
     """
-    colors = [color_scheme["light"], color_scheme["normal"], color_scheme["dark"]]
+    colors = [
+        "#FFFFFF",
+        color_scheme["light"],
+        color_scheme["normal"],
+        color_scheme["dark"],
+    ]
     return LinearSegmentedColormap.from_list(name, colors)
 
 

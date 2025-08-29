@@ -1,0 +1,10 @@
+group_name: "excitatory_third_factor_1d"
+
+param_grid:
+  homeostasis: [True, False]
+
+input_params:
+  excitatory_third_factor_config:
+    mixing_parameter: [0.2, 0.3, 0.4, 0.5, 0.6]
+    location: [0.0]
+    concentration: [0.5, 0.75, 1.0, 1.5, 2.0]

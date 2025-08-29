@@ -65,8 +65,8 @@ def plot_third_factor_heatmaps():
     fig, ((ax_a, ax_b), (ax_c, ax_d)) = plt.subplots(
         2,
         2,
-        figsize=(fig_width, fig_height),
-        gridspec_kw={"wspace": 0.1, "hspace": 0.15},
+        figsize=(fig_width, 0.8 * fig_width),
+        # gridspec_kw={"hspace": 0.2},
     )
 
     # Find homeostasis=True results for both experiments
@@ -90,8 +90,8 @@ def plot_third_factor_heatmaps():
     excitatory_results = excitatory_data_dict[excitatory_key]
     inhibitory_results = inhibitory_data_dict[inhibitory_key]
 
-    excitatory_results["parameters"]["device"] = torch.device("cpu")
-    inhibitory_results["parameters"]["device"] = torch.device("cpu")
+    # excitatory_results["parameters"]["device"] = torch.device("cpu")
+    # inhibitory_results["parameters"]["device"] = torch.device("cpu")
 
     excitatory_input_generator = create_input_generator_from_results(excitatory_results)
     inhibitory_input_generator = create_input_generator_from_results(inhibitory_results)
@@ -116,103 +116,96 @@ def plot_third_factor_heatmaps():
 
     # Extract data for all panels
     # Panel A: Stimuli locations + center neuron tuning curve
-    stimuli_locations = excitatory_input_generator.stimuli_locations  # [400, 2]
-    neuron_locations = excitatory_input_generator.neuron_locations[
-        excitatory_batch_idx
-    ]  # [400, 2]
+    # stimuli_locations = excitatory_input_generator.stimuli_locations  # [400, 2]
+    # neuron_locations = excitatory_input_generator.neuron_locations[
+    #     excitatory_batch_idx
+    # ]  # [400, 2]
 
-    # Find center neuron
-    center_neuron_idx = find_center_neuron_index(neuron_locations)
-
-    # Get center neuron's tuning curve (first repeat, target batch)
-    excitatory_rates = excitatory_results["metrics_over_time"]["rates"][
-        -1, 0, excitatory_batch_idx, :, :
-    ]  # [N_I, num_stimuli]
-    center_tuning_curve = excitatory_rates[center_neuron_idx, :]  # [400]
-
-    # Reshape for heatmap
-    center_tuning_2d = center_tuning_curve.reshape(grid_size, grid_size)
-    stimuli_x = stimuli_locations[:, 0].reshape(grid_size, grid_size)
-    stimuli_y = stimuli_locations[:, 1].reshape(grid_size, grid_size)
+    stimuli_patterns = excitatory_input_generator.stimuli_patterns  # [num_stimuli, N_E]
+    stimulus_idx = 150
+    centre_tuning = stimuli_patterns[0, stimulus_idx, :]
+    centre_tuning_2d = centre_tuning.reshape(grid_size, grid_size)
 
     # Panel B: Excitatory third factor
-    excitatory_third_factor = excitatory_input_generator.excitatory_third_factor[
-        excitatory_batch_idx
-    ]  # [400]
+    excitatory_third_factor = excitatory_input_generator.excitatory_third_factor.mean(
+        dim=0
+    )  # [400]
     excitatory_third_factor_2d = excitatory_third_factor.reshape(grid_size, grid_size)
 
     # Panel C: Inhibitory density from excitatory experiment
     excitatory_metrics = excitatory_results["metrics_over_time"]
-    # excitatory_density = excitatory_metrics["curves/density"][
-    #     -1, 0, excitatory_batch_idx, :
-    # ]  # [400]
+    excitatory_density = excitatory_metrics["curves/density"][-1, :, :, :].mean(
+        dim=(0, 1)
+    )  # [400]
 
-    curves = curves_log(
-        rates=excitatory_results["metrics_over_time"]["rates"][-1],
-        input_generator=excitatory_input_generator,
-        parameters=SimulationParameters(**excitatory_results["parameters"]),
-    )
-    excitatory_density = curves["curves/density"][0, excitatory_batch_idx, :]
+    # curves = curves_log(
+    #     rates=excitatory_results["metrics_over_time"]["rates"][-1],
+    #     input_generator=excitatory_input_generator,
+    #     parameters=SimulationParameters(**excitatory_results["parameters"]),
+    # )
+    # excitatory_density = curves["curves/density"][0, excitatory_batch_idx, :]
     excitatory_density_2d = excitatory_density.reshape(grid_size, grid_size)
 
     # Panel D: Inhibitory density from inhibitory experiment
     inhibitory_metrics = inhibitory_results["metrics_over_time"]
-    inhibitory_density = inhibitory_metrics["curves/density"][
-        -1, 0, inhibitory_batch_idx, :
-    ]  # [400]
+    inhibitory_density = inhibitory_metrics["curves/density"][-1, :, :, :].mean(
+        dim=(0, 1)
+    )  # [400]
     inhibitory_density_2d = inhibitory_density.reshape(grid_size, grid_size)
 
     # Create extent for proper axis scaling (-π to π)
     extent = [-np.pi, np.pi, -np.pi, np.pi]
-
-    # Panel A: Tuning curve heatmap + stimuli dots
+    ax_a.set_title("Example Input Activations", fontsize=title_size)
     im_a = ax_a.imshow(
-        center_tuning_2d.cpu().numpy(), cmap="plasma", extent=extent, origin="lower"
-    )
-    ax_a.scatter(
-        stimuli_x.cpu().numpy().flatten(),
-        stimuli_y.cpu().numpy().flatten(),
-        s=1,
-        c="white",
-        alpha=0.7,
+        centre_tuning_2d.cpu().numpy(),
+        cmap="plasma",
+        extent=extent,
+        origin="lower",
+        vmin=0,
+        vmax=centre_tuning_2d.max().item(),
     )
 
-    # Panel B: Excitatory third factor heatmap
+    ax_b.set_title("Value profile, $V(s)$", fontsize=title_size)
     im_b = ax_b.imshow(
         excitatory_third_factor_2d.cpu().numpy(),
         cmap=purple_cmap,
         extent=extent,
         origin="lower",
+        vmin=0,
+        vmax=excitatory_third_factor_2d.max().item(),
     )
 
-    # Panel C: Inhibitory density from excitatory experiment
+    ax_c.set_title(r"$d_I$ when $q_E \propto V$", fontsize=title_size)
     im_c = ax_c.imshow(
         excitatory_density_2d.cpu().numpy(),
         cmap=blue_cmap,
         extent=extent,
         origin="lower",
+        vmin=0,
+        vmax=excitatory_density_2d.max().item(),
     )
 
-    # Panel D: Inhibitory density from inhibitory experiment
+    ax_d.set_title(r"$d_I$ when $q_I \propto V$", fontsize=title_size)
     im_d = ax_d.imshow(
         inhibitory_density_2d.cpu().numpy(),
         cmap=blue_cmap,
         extent=extent,
         origin="lower",
+        vmin=0,
+        vmax=inhibitory_density_2d.max().item(),
     )
-
     # Style all panels
     panels = [ax_a, ax_b, ax_c, ax_d]
     panel_labels = ["A", "B", "C", "D"]
     images = [im_a, im_b, im_c, im_d]
 
     for i, (ax, label, im) in enumerate(zip(panels, panel_labels, images)):
-        # Remove axis labels and ticks as requested
         ax.set_xticks([])
         ax.set_yticks([])
 
         # Add colorbar
-        plt.colorbar(im, ax=ax, shrink=0.8)
+        cbar = plt.colorbar(im, ax=ax, shrink=0.9)
+        cbar.ax.tick_params(labelsize=ticks_size)
 
         # Panel label
         ax.text(
@@ -224,12 +217,13 @@ def plot_third_factor_heatmaps():
             fontweight="bold",
             va="top",
             ha="left",
-            color="white",  # White text to show up on dark backgrounds
         )
 
     # Create figures directory and save
     figures_dir = Path("figures")
     figures_dir.mkdir(exist_ok=True)
+
+    plt.tight_layout()
 
     output_path = figures_dir / "third_factor_heatmaps.pdf"
     plt.savefig(output_path, format="pdf", bbox_inches="tight", dpi=300)
