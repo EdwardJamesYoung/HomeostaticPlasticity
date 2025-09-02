@@ -485,14 +485,17 @@ class InputGenerator(ABC):
             self.tuning_width * self.input_widths.unsqueeze(1)
         )  # [batch, N_E, num_stimuli]
 
+        kernel = torch.exp(-0.5 * (self.distances / self.tuning_width) ** 2)
+        kernel_normalisation = kernel.mean(dim=-1, keepdim=True)
+
         # Apply wrapped Gaussian kernel
         kernel_responses = torch.exp(
             -0.5 * scaled_distances**2
         )  # [batch, N_E, num_stimuli]
         # Normalise the responses so that the sum for each neuron is equal to 1
-        kernel_responses = kernel_responses / kernel_responses.mean(
-            dim=-1, keepdim=True
-        )
+        kernel_responses = (
+            kernel_responses / kernel_normalisation
+        )  # [batch, N_E, num_stimuli]
 
         # Apply gains: multiply by gain[stimulus]
         # gains: [batch, num_stimuli] -> [batch, 1, num_stimuli]
