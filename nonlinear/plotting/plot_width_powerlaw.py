@@ -194,8 +194,8 @@ def plot_width_powerlaw():
     r_squared_values = [d_I_r2, g_I_r2]
     slope_values = [d_I_slope, g_I_slope]
 
-    ax_a.set_ylim(-2.5, 0.5)
-    ax_b.set_ylim(-1.0, 0.5)
+    ax_a.set_ylim(-0.5, 2.5)
+    ax_b.set_ylim(-1.25, 0.25)
 
     # Set the title of each axis
     ax_a.set_title(r"$d_I \propto w_E^\gamma$")
